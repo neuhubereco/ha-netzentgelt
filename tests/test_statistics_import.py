@@ -137,3 +137,65 @@ async def test_statistics_without_existing_stop_before_entity_creation(
     )
     assert sorted(stats) == [datetime(2026, 9, 11, 5, tzinfo=UTC), datetime(2026, 9, 11, 6, tzinfo=UTC)]
     assert stats[datetime(2026, 9, 11, 5, tzinfo=UTC)]["mean"] == pytest.approx(3.0)
+
+
+async def test_statistics_import_ignores_short_term_rows_of_new_sensor(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path
+) -> None:
+    """Regression: 5-Minuten-Statistik eines frisch angelegten Sensors ist kein Vorbestand.
+
+    ``statistic_during_period`` mit offenem Beginn bezieht bei jungen Sensoren
+    den Kopf aus der 5-Minuten-Tabelle — auch wenn er nach dem Importzeitraum
+    liegt. Die frühere Prüfung meldete deshalb „Werte vor dem Import“ und
+    importierte 0 Stunden (live HA 2026.9.1).
+    """
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.components.recorder.db_schema import Statistics, StatisticsShortTerm
+    from homeassistant.components.recorder.models import StatisticMeanType
+
+    hass.config.config_dir = str(tmp_path)
+    entry, _ = await _setup(hass, freezer, START)  # Entity angelegt 11.09. 07:56 UTC
+    sensor_id = _entity_id(hass, entry, "sensor", "quarter_power")
+    metadata = {
+        "mean_type": StatisticMeanType.ARITHMETIC,
+        "has_sum": False,
+        "name": None,
+        "source": "recorder",
+        "statistic_id": sensor_id,
+        "unit_class": "power",
+        "unit_of_measurement": "kW",
+    }
+    # Wie beim echten Recorder kurz nach Anlage: erste Stunde 07:00 UTC, 5-Minuten-Werte ab 07:40
+    instance = get_instance(hass)
+    instance.async_import_statistics(
+        metadata,  # type: ignore[arg-type]
+        [{"start": datetime(2026, 9, 11, 7, tzinfo=UTC), "mean": 1.0, "min": 1.0, "max": 1.0}],
+        Statistics,
+    )
+    instance.async_import_statistics(
+        metadata,  # type: ignore[arg-type]
+        [
+            {"start": datetime(2026, 9, 11, 7, minute, tzinfo=UTC), "mean": 1.0, "min": 1.0, "max": 1.0}
+            for minute in (40, 45, 50)
+        ],
+        StatisticsShortTerm,
+    )
+    await async_wait_recording_done(hass)
+
+    rows = _quarters(datetime(2026, 9, 10, 20, 0, tzinfo=UTC), 16, 2.0)  # 20:00–23:45 UTC am Vortag
+    (tmp_path / "lastgang.csv").write_text(_csv(rows), encoding="utf-8")
+    response = await _call(hass, entry.entry_id, "lastgang.csv")
+    await async_wait_recording_done(hass)
+    assert response["statistics_hours"] == 4
+    assert response["statistics_hours_skipped"] == 0
+    stats = await instance.async_add_executor_job(
+        _hour_rows,
+        hass,
+        sensor_id,
+        datetime(2026, 9, 10, 0, tzinfo=UTC),
+        datetime(2026, 9, 12, 0, tzinfo=UTC),
+    )
+    assert sorted(stats) == [datetime(2026, 9, 10, h, tzinfo=UTC) for h in (20, 21, 22, 23)] + [
+        datetime(2026, 9, 11, 7, tzinfo=UTC)
+    ]
+    assert stats[datetime(2026, 9, 11, 7, tzinfo=UTC)]["mean"] == pytest.approx(1.0)  # eigene bleibt
