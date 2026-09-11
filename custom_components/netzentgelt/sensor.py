@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -76,23 +76,35 @@ def _live_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
 
 
 def _peak_value(c: NetzentgeltCoordinator) -> float | None:
-    return _r(c.month_stats.peak_kw, 3)
+    return _r(c.month_peak[0], 3)
 
 
 def _peak_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
     stats = c.month_stats
-    start = _parse(stats.peak_start)
+    peak, peak_start = c.month_peak
+    start = _parse(peak_start)
     return {
         "month": c.tracker.current,
         "peak_quarter_start": c.local_iso(start),
         "peak_quarter_end": c.local_iso(start + calc.QUARTER) if start else None,
-        "peak_rounded_kw": _r(stats.peak_kw, 2),
+        "peak_rounded_kw": _r(peak, 2),
         "valid_quarters_month": stats.valid_quarters,
         "invalid_quarters_month": stats.invalid_quarters,
-        "history": {
-            month: {**values, "peak_start": c.local_iso(_parse(values["peak_start"]))}
-            for month, values in c.tracker.history().items()
-        },
+        "source": stats.source,
+        "history": {month: _history_entry(c, values) for month, values in c.tracker.history().items()},
+    }
+
+
+def _history_entry(c: NetzentgeltCoordinator, values: dict[str, Any]) -> dict[str, Any]:
+    """Monat im Verlauf, Kosten mit den AKTUELLEN Preiseinstellungen gerechnet."""
+    peak = values["peak_kw"]
+    billed = c.billed_for(peak) if peak is not None else None
+    return {
+        **values,
+        "peak_kw": _r(peak, 3),
+        "peak_start": c.local_iso(_parse(values["peak_start"])),
+        "billed_kw": billed,
+        "capacity_cost_eur": c.cost_for(billed) if billed is not None else None,
     }
 
 
@@ -101,7 +113,7 @@ def _parse(value: str | None) -> datetime | None:
 
 
 def _billed_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
-    peak = c.month_stats.peak_kw
+    peak = c.month_peak[0]
     minimum = c.minimum_kw
     return {
         "peak_rounded_kw": _r(peak, 2),
@@ -126,6 +138,28 @@ def _cost_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
         "annual_cost_eur": _r(calc.annual_capacity_cost(billed, limit, p1, p2), 2),
         "note": "Richtwert — Tarifverordnung (SNE-T-V) steht aus",
     }
+
+
+def _profile_value(c: NetzentgeltCoordinator) -> str | None:
+    """Uhrzeit (HH:MM, Ortszeit) der Viertelstunde mit der Monatsspitze."""
+    start = _parse(c.month_peak[1])
+    return start.astimezone(c.tz).strftime("%H:%M") if start else None
+
+
+def _profile_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
+    today = c.today()
+    profile = c.month_stats.combined_profile()
+    return {
+        "month": c.tracker.current,
+        "today_kw": calc.round_list(c.days.get(today)),
+        "yesterday_kw": calc.round_list(c.days.get(today - timedelta(days=1))),
+        "month_max_kw": calc.round_list(profile.max),
+        "month_avg_kw": calc.round_list(profile.avg()),
+        "labels": LABELS,
+    }
+
+
+LABELS = calc.slot_labels()
 
 
 def _tariff_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
@@ -200,6 +234,12 @@ SENSORS: tuple[NetzentgeltSensorDescription, ...] = (
         **POWER_KW,  # type: ignore[arg-type]
     ),
     NetzentgeltSensorDescription(
+        key="load_profile",
+        translation_key="load_profile",
+        value_fn=_profile_value,
+        attrs_fn=_profile_attrs,
+    ),
+    NetzentgeltSensorDescription(
         key="tariff_window",
         translation_key="tariff_window",
         device_class=SensorDeviceClass.ENUM,
@@ -217,11 +257,9 @@ async def async_setup_entry(
 ) -> None:
     """Sensoren anlegen."""
     coordinator = entry.runtime_data
+    classes = {"month_peak": NetzentgeltPeakSensor, "load_profile": NetzentgeltProfileSensor}
     async_add_entities(
-        (NetzentgeltPeakSensor if description.key == "month_peak" else NetzentgeltSensor)(
-            coordinator, description
-        )
-        for description in SENSORS
+        classes.get(description.key, NetzentgeltSensor)(coordinator, description) for description in SENSORS
     )
 
 
@@ -245,6 +283,14 @@ class NetzentgeltSensor(NetzentgeltEntity, SensorEntity):
 
 
 class NetzentgeltPeakSensor(NetzentgeltSensor):
-    """Monatsspitze: der 24-Monats-Verlauf wird nicht in den Recorder geschrieben."""
+    """Monatsspitze: der Verlauf (36 Monate) wird nicht in den Recorder geschrieben."""
 
     _unrecorded_attributes = frozenset({"history"})
+
+
+class NetzentgeltProfileSensor(NetzentgeltSensor):
+    """Lastprofil: die 96er-Listen werden nicht in den Recorder geschrieben (groß)."""
+
+    _unrecorded_attributes = frozenset(
+        {"today_kw", "yesterday_kw", "month_max_kw", "month_avg_kw", "labels"}
+    )

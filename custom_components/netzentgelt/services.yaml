@@ -1,0 +1,24 @@
+import_load_profile:
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        config_entry:
+          integration: netzentgelt
+    path:
+      required: true
+      example: "netzentgelt/lastgang.csv"
+      selector:
+        text:
+    timestamp_is_end:
+      default: false
+      selector:
+        boolean:
+    overwrite:
+      default: false
+      selector:
+        boolean:
+    import_statistics:
+      default: true
+      selector:
+        boolean:

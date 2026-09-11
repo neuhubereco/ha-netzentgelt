@@ -14,6 +14,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.netzentgelt.const import (
     CONF_ENERGY_ENTITY,
     CONF_HYSTERESIS_KW,
+    CONF_PLAUSIBILITY_KW,
     CONF_POWER_ENTITY,
     CONF_TARGET_KW,
     DEFAULT_OPTIONS,
@@ -109,7 +110,7 @@ async def test_user_flow_aborts_if_already_configured(hass: HomeAssistant) -> No
     assert result["reason"] == "already_configured"
 
 
-async def test_options_flow_updates_and_reloads(hass: HomeAssistant) -> None:
+async def test_options_flow_value_change_is_live_structural_change_reloads(hass: HomeAssistant) -> None:
     _set_sources(hass)
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -127,13 +128,24 @@ async def test_options_flow_updates_and_reloads(hass: HomeAssistant) -> None:
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "init"
 
-    new_options = {**DEFAULT_OPTIONS, CONF_TARGET_KW: 8.5}
-    result = await hass.config_entries.options.async_configure(result["flow_id"], new_options)
+    # Nur ein Wert (Ziel) → live übernommen, KEIN Neuladen (laufende Viertelstunde bleibt gültig)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**DEFAULT_OPTIONS, CONF_TARGET_KW: 8.5}
+    )
     await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_TARGET_KW] == 8.5
-    # Options-Änderung → Reload → neuer Coordinator mit neuen Werten
+    assert entry.runtime_data is coordinator_before
+    assert entry.runtime_data.options[CONF_TARGET_KW] == 8.5
+
+    # Plausibilitätsgrenze (Parameter der Messung) → Neuladen mit neuem Coordinator
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**DEFAULT_OPTIONS, CONF_TARGET_KW: 8.5, CONF_PLAUSIBILITY_KW: 40.0}
+    )
+    await hass.async_block_till_done()
     assert entry.runtime_data is not coordinator_before
+    assert entry.runtime_data.engine.plausibility_kw == 40.0
     assert entry.runtime_data.options[CONF_TARGET_KW] == 8.5
 
 

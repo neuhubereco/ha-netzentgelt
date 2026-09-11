@@ -42,6 +42,34 @@ DEFAULT_OPTIONS: Final[dict[str, float]] = {
     CONF_HYSTERESIS_KW: 0.2,
 }
 
+# Reine Wert-Optionen: Änderung wird live übernommen, ohne die Integration neu
+# zu laden (ein Neuladen würde die laufende Viertelstunde ungültig machen).
+# Alles andere (Quell-Sensoren, Plausibilitätsgrenze, Titel) lädt neu.
+LIVE_OPTION_KEYS: Final = frozenset(
+    {
+        CONF_TARGET_KW,
+        CONF_TIER_LIMIT_KW,
+        CONF_AGREED_KW,
+        CONF_MINIMUM_KW,
+        CONF_PRICE_TIER1,
+        CONF_PRICE_TIER2,
+        CONF_PRICE_STANDARD,
+        CONF_PRICE_SNAP,
+        CONF_PRICE_WINAP,
+        CONF_HYSTERESIS_KW,
+    }
+)
+
+# --- Service import_load_profile ---------------------------------------------
+SERVICE_IMPORT_LOAD_PROFILE: Final = "import_load_profile"
+ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
+ATTR_PATH: Final = "path"
+ATTR_TIMESTAMP_IS_END: Final = "timestamp_is_end"
+ATTR_OVERWRITE: Final = "overwrite"
+ATTR_IMPORT_STATISTICS: Final = "import_statistics"
+IMPORT_SUFFIXES: Final = (".csv", ".txt")
+IMPORT_MAX_BYTES: Final = 20 * 1024 * 1024  # 3 Jahre Viertelstunden ≈ 4 MB
+
 ENERGY_UNITS: Final = ("Wh", "kWh", "MWh")
 POWER_UNITS: Final = ("W", "kW")
 ENERGY_STATE_CLASSES: Final = ("total", "total_increasing")

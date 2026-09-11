@@ -1,6 +1,9 @@
 {
   "domain": "netzentgelt",
   "name": "Netzentgelt AT (Leistungspreis)",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@neuhubereco"
   ],
@@ -10,5 +13,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/neuhubereco/ha-netzentgelt/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.2.0"
 }

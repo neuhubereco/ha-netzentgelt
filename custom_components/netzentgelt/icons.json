@@ -1,0 +1,45 @@
+{
+  "entity": {
+    "number": {
+      "target_kw": {
+        "default": "mdi:target"
+      },
+      "tier_limit_kw": {
+        "default": "mdi:stairs"
+      },
+      "agreed_kw": {
+        "default": "mdi:file-sign"
+      },
+      "minimum_kw": {
+        "default": "mdi:arrow-collapse-down"
+      },
+      "price_tier1": {
+        "default": "mdi:currency-eur"
+      },
+      "price_tier2": {
+        "default": "mdi:currency-eur"
+      },
+      "hysteresis_kw": {
+        "default": "mdi:arrow-expand-vertical"
+      }
+    },
+    "sensor": {
+      "load_profile": {
+        "default": "mdi:chart-bar"
+      }
+    },
+    "switch": {
+      "peak_shaving": {
+        "default": "mdi:chart-bell-curve-cumulative",
+        "state": {
+          "off": "mdi:pause-circle-outline"
+        }
+      }
+    }
+  },
+  "services": {
+    "import_load_profile": {
+      "service": "mdi:file-import"
+    }
+  }
+}

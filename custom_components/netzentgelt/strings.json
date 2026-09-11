@@ -29,7 +29,7 @@
     "step": {
       "init": {
         "title": "Thresholds and prices",
-        "description": "Default prices are indicative values (not official); the tariff regulation is still pending. Energy prices of 0 mean 'not set'.",
+        "description": "Default prices are indicative values (not official); the tariff regulation is still pending. Energy prices of 0 mean 'not set'. Target, tier limit, prices and hysteresis can also be changed directly via the settings entities; changing the plausibility limit reloads the integration.",
         "data": {
           "target_kw": "Target power",
           "tier_limit_kw": "Tier limit",
@@ -85,11 +85,108 @@
           "winap": "WiNAP (winter night)",
           "standard": "Standard"
         }
+      },
+      "load_profile": {
+        "name": "Load profile"
       }
     },
     "binary_sensor": {
       "peak_imminent": {
         "name": "Peak imminent"
+      }
+    },
+    "number": {
+      "target_kw": {
+        "name": "Target power"
+      },
+      "tier_limit_kw": {
+        "name": "Tier limit"
+      },
+      "agreed_kw": {
+        "name": "Agreed capacity"
+      },
+      "minimum_kw": {
+        "name": "Minimum billed power"
+      },
+      "price_tier1": {
+        "name": "Capacity price tier 1"
+      },
+      "price_tier2": {
+        "name": "Capacity price tier 2"
+      },
+      "hysteresis_kw": {
+        "name": "Hysteresis"
+      }
+    },
+    "switch": {
+      "peak_shaving": {
+        "name": "Peak shaving active"
+      }
+    }
+  },
+  "exceptions": {
+    "hysteresis_too_large": {
+      "message": "Hysteresis must be smaller than the target power ({target} kW)."
+    },
+    "target_above_plausibility": {
+      "message": "Target power must not exceed the plausibility limit ({plausibility} kW)."
+    },
+    "entry_not_found": {
+      "message": "No Netzentgelt entry with this ID was found."
+    },
+    "entry_not_loaded": {
+      "message": "The Netzentgelt entry is not loaded."
+    },
+    "path_not_allowed": {
+      "message": "Path \"{path}\" is not allowed. The file must be inside the Home Assistant configuration directory (no hidden folders) or in a directory listed in allowlist_external_dirs."
+    },
+    "invalid_file_type": {
+      "message": "\"{path}\": only .csv and .txt files can be imported."
+    },
+    "file_not_found": {
+      "message": "File \"{path}\" not found."
+    },
+    "file_too_large": {
+      "message": "File \"{path}\" is too large (at most 20 MB)."
+    },
+    "file_not_readable": {
+      "message": "File \"{path}\" could not be read."
+    },
+    "no_data": {
+      "message": "\"{path}\" contains no rows with a timestamp."
+    },
+    "no_value_column": {
+      "message": "\"{path}\": no value column (kW or kWh) found."
+    },
+    "no_valid_rows": {
+      "message": "\"{path}\": no valid quarter-hour values found."
+    }
+  },
+  "services": {
+    "import_load_profile": {
+      "name": "Import load profile",
+      "description": "Reads a 15-minute load profile (e.g. the portal export of your grid operator) from a CSV file, adds it to the monthly peak history and the load profile, and imports hourly values into the long-term statistics of the 15-minute power sensor — only for periods before your own measurements.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Entry",
+          "description": "The Netzentgelt entry (meter) the load profile belongs to."
+        },
+        "path": {
+          "name": "File",
+          "description": "Path of the CSV file relative to the Home Assistant configuration directory, e.g. netzentgelt/lastgang.csv."
+        },
+        "timestamp_is_end": {
+          "name": "Timestamp is end",
+          "description": "Enable if the timestamp marks the end of the quarter hour (default: start, as in the Netz OÖ portal)."
+        },
+        "overwrite": {
+          "name": "Overwrite own measurement",
+          "description": "Replace months that have own measurements with the import. Off: the peak is the maximum of both."
+        },
+        "import_statistics": {
+          "name": "Import long-term statistics",
+          "description": "Import hourly mean, minimum and maximum values as statistics of the 15-minute power sensor (only hours before the first existing statistic)."
+        }
       }
     }
   }

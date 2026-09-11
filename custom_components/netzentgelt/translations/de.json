@@ -29,7 +29,7 @@
     "step": {
       "init": {
         "title": "Schwellwerte und Preise",
-        "description": "Die Standardpreise sind Richtwerte (nicht amtlich); die Tarifverordnung steht noch aus. Arbeitspreise 0 bedeuten „nicht gesetzt“.",
+        "description": "Die Standardpreise sind Richtwerte (nicht amtlich); die Tarifverordnung steht noch aus. Arbeitspreise 0 bedeuten „nicht gesetzt“. Ziel, Staffel, Preise und Hysterese lassen sich auch direkt über die Einstellungs-Entities ändern; eine Änderung der Plausibilitätsgrenze lädt die Integration neu.",
         "data": {
           "target_kw": "Ziel-Leistung",
           "tier_limit_kw": "Staffelgrenze",
@@ -85,11 +85,108 @@
           "winap": "WiNAP (Winter nachts)",
           "standard": "Standard"
         }
+      },
+      "load_profile": {
+        "name": "Lastprofil"
       }
     },
     "binary_sensor": {
       "peak_imminent": {
         "name": "Spitze droht"
+      }
+    },
+    "number": {
+      "target_kw": {
+        "name": "Ziel-Leistung"
+      },
+      "tier_limit_kw": {
+        "name": "Staffelgrenze"
+      },
+      "agreed_kw": {
+        "name": "Vereinbarte Leistung"
+      },
+      "minimum_kw": {
+        "name": "Mindestleistung"
+      },
+      "price_tier1": {
+        "name": "Leistungspreis Stufe 1"
+      },
+      "price_tier2": {
+        "name": "Leistungspreis Stufe 2"
+      },
+      "hysteresis_kw": {
+        "name": "Hysterese"
+      }
+    },
+    "switch": {
+      "peak_shaving": {
+        "name": "Peak-Shaving aktiv"
+      }
+    }
+  },
+  "exceptions": {
+    "hysteresis_too_large": {
+      "message": "Die Hysterese muss kleiner als die Ziel-Leistung ({target} kW) sein."
+    },
+    "target_above_plausibility": {
+      "message": "Die Ziel-Leistung darf die Plausibilitätsgrenze ({plausibility} kW) nicht übersteigen."
+    },
+    "entry_not_found": {
+      "message": "Kein Netzentgelt-Eintrag mit dieser ID gefunden."
+    },
+    "entry_not_loaded": {
+      "message": "Der Netzentgelt-Eintrag ist nicht geladen."
+    },
+    "path_not_allowed": {
+      "message": "Pfad „{path}“ ist nicht erlaubt. Die Datei muss im Home-Assistant-Konfigurationsverzeichnis liegen (keine versteckten Ordner) oder in einem über allowlist_external_dirs freigegebenen Verzeichnis."
+    },
+    "invalid_file_type": {
+      "message": "„{path}“: Es werden nur .csv- und .txt-Dateien importiert."
+    },
+    "file_not_found": {
+      "message": "Datei „{path}“ nicht gefunden."
+    },
+    "file_too_large": {
+      "message": "Datei „{path}“ ist zu groß (höchstens 20 MB)."
+    },
+    "file_not_readable": {
+      "message": "Datei „{path}“ konnte nicht gelesen werden."
+    },
+    "no_data": {
+      "message": "„{path}“ enthält keine Zeilen mit Zeitstempel."
+    },
+    "no_value_column": {
+      "message": "„{path}“: Keine Wertspalte (kW oder kWh) gefunden."
+    },
+    "no_valid_rows": {
+      "message": "„{path}“: Keine gültigen Viertelstundenwerte gefunden."
+    }
+  },
+  "services": {
+    "import_load_profile": {
+      "name": "Lastgang importieren",
+      "description": "Liest einen Viertelstunden-Lastgang (z. B. den Portal-Export deines Netzbetreibers) als CSV ein, ergänzt Monatsspitzen-Verlauf und Lastprofil und importiert Stundenwerte in die Langzeitstatistik der 15-Min-Leistung — nur für Zeiträume vor den eigenen Messwerten.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Eintrag",
+          "description": "Der Netzentgelt-Eintrag (Zähler), zu dem der Lastgang gehört."
+        },
+        "path": {
+          "name": "Datei",
+          "description": "Pfad der CSV-Datei relativ zum Home-Assistant-Konfigurationsverzeichnis, z. B. netzentgelt/lastgang.csv."
+        },
+        "timestamp_is_end": {
+          "name": "Zeitstempel ist Ende",
+          "description": "Einschalten, wenn der Zeitstempel das Ende der Viertelstunde angibt (Standard: Beginn, wie beim Netz-OÖ-Portal)."
+        },
+        "overwrite": {
+          "name": "Eigene Messung überschreiben",
+          "description": "Monate mit eigener Messung durch den Import ersetzen. Aus: Die Spitze wird aus beidem ermittelt."
+        },
+        "import_statistics": {
+          "name": "Langzeitstatistik importieren",
+          "description": "Stündliche Mittel-, Minimal- und Maximalwerte als Statistik der 15-Min-Leistung importieren (nur Stunden vor der ersten vorhandenen Statistik)."
+        }
       }
     }
   }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 from typing import Any
 
@@ -41,6 +41,7 @@ from .const import (
     DEFAULT_OPTIONS,
     DOMAIN,
     FORECAST_INTERVAL_SECONDS,
+    LIVE_OPTION_KEYS,
     QUARTER_MINUTES,
     STORAGE_SAVE_DELAY,
     STORAGE_VERSION,
@@ -75,10 +76,12 @@ class NetzentgeltCoordinator:
         self.energy_entity: str = entry.data[CONF_ENERGY_ENTITY]
         self.power_entity: str | None = entry.data.get(CONF_POWER_ENTITY) or None
         self.options: dict[str, float] = {**DEFAULT_OPTIONS, **entry.options}
+        self._structure = _structural_snapshot(entry)
         self.tz = dt_util.get_default_time_zone()
 
         self.engine = calc.QuarterEngine(plausibility_kw=float(self.options[CONF_PLAUSIBILITY_KW]))
         self.tracker = calc.PeakTracker(tz=self.tz)
+        self.days = calc.DayProfiles(tz=self.tz)
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, storage_key(entry.entry_id))
         self._listeners: list[CALLBACK_TYPE] = []
 
@@ -131,6 +134,22 @@ class NetzentgeltCoordinator:
     async def async_shutdown(self) -> None:
         """Zustand sofort sichern (Entladen/Neuladen)."""
         await self._store.async_save(self._data_to_store())
+
+    @callback
+    def async_apply_entry_update(self, entry: NetzentgeltConfigEntry) -> bool:
+        """Geänderte Wert-Optionen live übernehmen.
+
+        Rückgabe ``False``, wenn sich Strukturelles geändert hat (Quellen,
+        Plausibilitätsgrenze, Titel) — dann muss neu geladen werden.
+        """
+        if _structural_snapshot(entry) != self._structure:
+            return False
+        options = {**DEFAULT_OPTIONS, **entry.options}
+        if options != self.options:
+            self.options = options
+            self._recompute(dt_util.utcnow())
+            self._notify()
+        return True
 
     # ------------------------------------------------------------ listeners
     @callback
@@ -204,6 +223,7 @@ class NetzentgeltCoordinator:
             return False
         for result in results:
             self.tracker.add(result)
+            self.days.add(result)
             if self.last_quarter is None or result.start >= self.last_quarter.start:
                 self.last_quarter = result
             if result.valid and (
@@ -240,6 +260,7 @@ class NetzentgeltCoordinator:
             float(opts[CONF_HYSTERESIS_KW]),
         )
 
+        self.days.prune(now.astimezone(self.tz).date())
         self.tariff = calc.tariff_window(now, self.tz)
         self.tariff_end = calc.tariff_window_end(now, self.tz)
         self.energy_price = calc.energy_price(
@@ -280,23 +301,67 @@ class NetzentgeltCoordinator:
         )
 
     @property
-    def billed_kw(self) -> float:
-        """Verrechnete Leistung des laufenden Monats."""
+    def month_peak(self) -> tuple[float | None, str | None]:
+        """Monatsspitze (kW, ISO-Beginn) aus eigener Messung und Import."""
+        return self.month_stats.combined_peak()
+
+    def billed_for(self, peak_kw: float | None) -> float:
+        """Verrechnete Leistung für eine Spitze (mit den aktuellen Einstellungen)."""
         return calc.billed_kw(
-            self.month_stats.peak_kw,
+            peak_kw,
             float(self.options[CONF_AGREED_KW]),
             float(self.options[CONF_MINIMUM_KW]),
         )
 
-    @property
-    def monthly_cost(self) -> float:
-        """Geschätzter Leistungspreis des laufenden Monats (€)."""
+    def cost_for(self, billed: float) -> float:
+        """Monatlicher Leistungspreis (€) für eine verrechnete Leistung."""
         return calc.monthly_capacity_cost(
-            self.billed_kw,
+            billed,
             float(self.options[CONF_TIER_LIMIT_KW]),
             float(self.options[CONF_PRICE_TIER1]),
             float(self.options[CONF_PRICE_TIER2]),
         )
+
+    @property
+    def billed_kw(self) -> float:
+        """Verrechnete Leistung des laufenden Monats."""
+        return self.billed_for(self.month_peak[0])
+
+    @property
+    def monthly_cost(self) -> float:
+        """Geschätzter Leistungspreis des laufenden Monats (€)."""
+        return self.cost_for(self.billed_kw)
+
+    def today(self) -> date:
+        """Heutiges Datum in der HA-Zeitzone."""
+        return dt_util.utcnow().astimezone(self.tz).date()
+
+    # ------------------------------------------------------------- import
+    @callback
+    def async_import_load_profile(self, profile: calc.LoadProfile, *, overwrite: bool) -> dict[str, Any]:
+        """Gelesenen Lastgang in History und Tagesprofile übernehmen."""
+        now = dt_util.utcnow()
+        months = calc.summarize_months(profile.quarters, self.tz)
+        report = calc.merge_import(self.tracker, months, calc.month_key(now, self.tz), overwrite=overwrite)
+        today = now.astimezone(self.tz).date()
+        keep = {today, today - timedelta(days=1)}
+        filled = 0
+        for start, kw in profile.quarters.items():
+            if start.astimezone(self.tz).date() in keep:
+                filled += self.days.fill(start, kw)
+        self._recompute(now)
+        self._notify()
+        return {
+            "months_imported": report.imported,
+            "months_merged": report.merged,
+            "months_overwritten": report.overwritten,
+            "months_skipped": report.skipped,
+            "day_slots_filled": filled,
+        }
+
+    async def async_save(self) -> None:
+        """Zustand sofort speichern."""
+        await self._store.async_save(self._data_to_store())
 
     def local_iso(self, moment: datetime | None) -> str | None:
         """Zeitpunkt als ISO-String in lokaler Zeit."""
@@ -308,6 +373,7 @@ class NetzentgeltCoordinator:
     def _data_to_store(self) -> dict[str, Any]:
         return {
             "tracker": self.tracker.as_dict(),
+            "days": self.days.as_dict(),
             "last_quarter": self.last_quarter.as_dict() if self.last_quarter else None,
             "last_valid_quarter": (
                 self.last_valid_quarter.as_dict() if self.last_valid_quarter else None
@@ -318,6 +384,7 @@ class NetzentgeltCoordinator:
         if not data:
             return
         self.tracker = calc.PeakTracker.from_dict(self.tz, data.get("tracker"))
+        self.days = calc.DayProfiles.from_dict(self.tz, data.get("days"))
         self.last_quarter = _quarter_from_dict(data.get("last_quarter"))
         self.last_valid_quarter = _quarter_from_dict(data.get("last_valid_quarter"))
 
@@ -346,6 +413,16 @@ class NetzentgeltCoordinator:
             },
             "stored": self._data_to_store(),
         }
+
+
+def _structural_snapshot(entry: ConfigEntry) -> tuple[dict[str, Any], str, dict[str, Any]]:
+    """Alles, dessen Änderung ein Neuladen erfordert."""
+    options = {**DEFAULT_OPTIONS, **entry.options}
+    return (
+        dict(entry.data),
+        entry.title,
+        {key: value for key, value in options.items() if key not in LIVE_OPTION_KEYS},
+    )
 
 
 def _quarter_from_dict(data: Any) -> calc.QuarterResult | None:
