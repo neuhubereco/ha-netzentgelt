@@ -462,6 +462,31 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 - **Dashboards:** Ziel-Schieberegler und Schalter im Standard-Dashboard, neues Grafik-Dashboard
   für apexcharts-card.
 
+Korrekturen aus dem Review vor der Veröffentlichung:
+
+- **Import, mehrere Dateien:** Ein zweiter Import mit einem Teil desselben Monats ersetzte den
+  früheren Import-Teil (Spitze ging verloren). Importierte Viertelstunden werden jetzt je Monat
+  vereinigt, neuere Werte gewinnen (`months_import_extended`, `import_quarters_replaced`).
+- **Import, `overwrite`:** verwirft die eigene Messung eines Monats nur noch, wenn sie ganz im
+  importierten Zeitraum liegt (sonst `months_overwrite_skipped`); der laufende Monat wird nicht
+  mehr durch einen kürzeren Import gelöscht.
+- **Import, Statistik:** Vorbestand wird nur in der Stunden-Tabelle geprüft — 5-Minuten-Werte
+  eines frisch angelegten Sensors verhinderten sonst den ganzen Statistik-Import.
+- **Import, Dateiformat:** Datum und Uhrzeit in getrennten Spalten; absteigend sortierte Dateien
+  (doppelte Oktober-Stunde nicht mehr vertauscht); erste Datenzeile ohne Wert; Komma als Trenn-
+  und Dezimalzeichen zugleich wird abgelehnt statt still falsch gelesen.
+- **Import, intern:** Berechnung im Executor statt im Event-Loop; Lastprofil nimmt an der
+  doppelten Oktober-Stunde wie bei eigener Messung den größeren Wert.
+- **Ziel-Leistung:** Schieberegler im selben Bereich wie der Options-Dialog (0,5 kW bis zur
+  Plausibilitätsgrenze statt 2–30 kW).
+- **Blueprint Benachrichtigung:** meldet eine schrittweise wachsende Monatsspitze je Stufe (statt
+  nur einmal) und nicht mehr nach jedem Neustart/Neuladen.
+- **Blueprint Wallbox:** Wird Peak-Shaving während einer Ladepause ausgeschaltet, geht der Strom
+  jetzt auf den Höchststrom (blieb auf dem Mindeststrom).
+- **Blueprint Lasten abwerfen:** Mit „erst zur nächsten Viertelstunde“ wird nur eingeschaltet,
+  wenn an der Grenze keine Spitze droht (Höchstdauer ab dem Abschalten).
+- **Grafik-Dashboard:** Hinweis zum 24-h-Fenster an Tagen mit Zeitumstellung.
+
 ### 0.1.0
 
 - Erste Version: 15-Min-Leistung mit Interpolation, Monatsspitze, verrechnete Leistung,
