@@ -33,14 +33,23 @@ Monat — genau hier setzt Peak-Shaving an.
 
 ## So sieht es aus
 
-<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png" alt="Beispiel-Dashboard: Prognose der laufenden Viertelstunde als Tacho, darunter Spielraum, letzte Viertelstunde und Tarifzeitfenster; rechts Monatsspitze, verrechnete Leistung und geschätzter Leistungspreis" width="650">
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png" alt="Oben: Tacho mit der Prognose der laufenden Viertelstunde, Peak-Shaving-Schalter und Ziel-Schieberegler, Monatsspitze mit geschätztem Leistungspreis, Tarif-Einstellungen" width="900">
 
-*Beispiel-Dashboard aus [`examples/dashboard.yaml`](examples/dashboard.yaml), echte Werte eines Haushalts.*
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/profil.png" alt="Säulendiagramm über 24 Stunden: höchste Viertelstunde je Uhrzeit im laufenden Monat und Mittelwert, mit farbig hinterlegten SNAP- und WiNAP-Zeitfenstern und der Ziel-Linie; die Spitzen liegen am Abend um 20 Uhr" width="900">
 
-<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png" alt="Geräteseite der Integration in Home Assistant mit allen Sensoren" width="800">
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/monatsspitzen.png" alt="Monatsspitzen seit Jänner 2024 als Säulen, dazu der geschätzte Leistungspreis je Monat als Linie" width="900">
 
-*Geräteseite nach der Einrichtung (Screenshot aus v0.1, mit eigenem Icon ab HA 2026.3). Ab v0.2
-kommen Einstellungen, der Schalter „Peak-Shaving aktiv“ und der Sensor „Lastprofil“ dazu.*
+*Grafik-Dashboard aus [`examples/dashboard-apexcharts.yaml`](examples/dashboard-apexcharts.yaml)
+(braucht die HACS-Karte apexcharts-card), echte Werte eines Haushalts: „Wann entstehen deine
+Spitzen?“ zeigt das Monatsprofil über den Tag, darunter die Monatsspitzen seit 2024 — die Monate
+vor der Installation stammen aus dem importierten Portal-Export des Netzbetreibers
+(`netzentgelt.import_load_profile`). Ein Dashboard nur mit Core-Karten liegt in
+[`examples/dashboard.yaml`](examples/dashboard.yaml).*
+
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png" alt="Geräteseite der Integration: Steuerung mit Schalter Peak-Shaving aktiv und Ziel-Schieberegler, alle Sensoren, Konfiguration" width="650">
+
+*Geräteseite: Schalter und Ziel-Schieberegler unter „Steuerung“, die übrigen Einstellungen unter
+„Konfiguration“, mit eigenem Icon (HA ≥ 2026.3).*
 
 ## Was die Integration ersetzt
 
@@ -507,7 +516,7 @@ clock-aligned 15-minute average grid import power per calendar month is billed (
 capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00, WiNAP 1 Oct–31 Mar
 22:00–04:00 (a night belongs to the day it starts on).
 
-- **Screenshots:** [dashboard](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png), [device page](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png).
+- **Screenshots:** [dashboard](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png), [peak profile](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/profil.png), [monthly peaks](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/monatsspitzen.png), [device page](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png).
 - **Requirements:** Home Assistant ≥ 2026.3 and a frequently updated **grid import** energy sensor
   at the connection point. Best source: the smart meter's local customer interface
   (“Kundenschnittstelle”, optical or M-Bus; usually must be enabled by the grid operator, data is
