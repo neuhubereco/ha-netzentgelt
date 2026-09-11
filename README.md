@@ -29,6 +29,66 @@ Leistungspreis und liefert mit **Prognose** und **Spielraum** die Grundlage für
 Eine einzige Viertelstunde mit Wallbox + Herd + Wärmepumpe bestimmt also den Preis für den ganzen
 Monat — genau hier setzt Peak-Shaving an.
 
+## Was du brauchst
+
+1. **Home Assistant 2026.3 oder neuer** (für die Installation über HACS zusätzlich HACS).
+2. **Einen Energiesensor für den Netzbezug am Hausanschluss**, der laufend aktualisiert wird
+   (Zählerstand in kWh, `total_increasing`; idealerweise jede Minute oder öfter, Lücken bis
+   20 Minuten werden überbrückt). Woher der kommen kann, steht im nächsten Abschnitt.
+3. *Optional:* einen Sensor für die aktuelle Bezugsleistung (W/kW) — macht Prognose und
+   Spielraum reaktionsschneller.
+4. *Für automatisches Peak-Shaving:* eine eigene Automation oder dein Lademanagement. Die
+   Integration **misst, rechnet und warnt nur, sie schaltet nichts** (siehe Beispiel unten).
+   Wer [evcc](https://evcc.io) nutzt, kann den Netzbezug zusätzlich direkt über einen
+   `circuit` mit `maxPower` begrenzen (z. B. 9500 W bei einer 10-kW-Grenze).
+
+## Smart Meter und Messdaten
+
+**Der Leistungspreis wird am Smart Meter des Netzbetreibers gemessen.** Home Assistant kann nur
+so gut rechnen wie die Daten, die es bekommt. Drei Wege, von am genauesten bis ungeeignet:
+
+**1. Kundenschnittstelle des Smart Meters (am genauesten).** Österreichische Smart Meter haben
+eine lokale Kundenschnittstelle (je nach Zählertyp optisch/Infrarot oder M-Bus). Sie liefert
+Zählerstände und Leistung nahezu in Echtzeit — aus demselben Gerät, nach dem abgerechnet wird.
+- Die Schnittstelle muss meist beim Netzbetreiber **freigeschaltet** werden; die Daten sind
+  **AES-verschlüsselt**, den Schlüssel gibt es im Kundenportal des Netzbetreibers.
+- Auslesen per Lesekopf bzw. M-Bus-Adapter, z. B. mit ESPHome oder einer eigenen Integration.
+  Beispiele aus der Community (nicht von uns getestet):
+  [Wiener Netze (ESPHome)](https://github.com/bernikr/esphome-wienernetze-smartmeter),
+  [EVN, Salzburg Netz, TINETZ über M-Bus](https://github.com/NECH2004/smartmeter_austria),
+  [Netz OÖ / AMIS (ESPHome, Forum)](https://community.home-assistant.io/t/amis-smart-meter-integration-with-esphome-upper-austria/313525).
+- Welcher Zähler bei dir verbaut ist und wie die Freischaltung geht, steht beim jeweiligen
+  Netzbetreiber.
+
+**2. Eigener Zähler am Hausanschluss (gut).** Z. B. der Smart Meter des Wechselrichters
+(Fronius, SMA, Huawei …) oder ein 3-Phasen-Energiezähler (z. B. Shelly Pro 3EM), sofern er den
+**gesamten Bezug am Netzanschlusspunkt** misst. Messunterschiede zum Netzzähler sind normal —
+bei unserem Test lag ein Fronius Smart Meter rund 0,5 % unter dem Netzzähler (siehe
+„Genauigkeit“). Ziel deshalb mit Puffer setzen.
+
+**3. Nicht geeignet:**
+- **Verbrauch statt Bezug:** Bei PV-Anlagen ist der Hausverbrauch nicht der Netzbezug. Es zählt
+  nur, was aus dem Netz kommt.
+- **Unterzähler** einzelner Geräte (Wallbox, Wärmepumpe) — die Spitze entsteht am Hausanschluss.
+- **Portaldaten des Netzbetreibers:** Die Viertelstundenwerte im Kundenportal kommen erst am
+  Folgetag — für die Live-Steuerung zu spät, aber ideal zum Nachprüfen: Portal-Export und eigene
+  Zählerstände mit `tools/replay.py` vergleichen (siehe „Entwicklung“).
+
+**Viertelstundenwerte beim Netzbetreiber.** Seit dem ElWG (in Kraft seit 24.12.2025) erfassen
+die Netzbetreiber standardmäßig Viertelstundenwerte; die Umstellung der Zähler läuft 2026
+schrittweise. Haushalte können widersprechen — nicht aber, wenn z. B. eine Wärmepumpe,
+Ladestation, ein Speicher oder eine Erzeugungsanlage angeschlossen ist, bei dynamischem
+Stromtarif oder in einer Energiegemeinschaft. Laut Verordnungsentwurf gelten die günstigeren
+Zeitfenster SNAP und WiNAP nur für Anschlüsse mit Viertelstundenwerten; fehlt der gemessene
+Höchstwert, wird er rechnerisch ermittelt. Details:
+[Netz NÖ zum ElWG](https://netz-noe.at/energiezukunft/elwg-zu-smart-meter) bzw. dein
+Netzbetreiber.
+
+**Energiegemeinschaften:** Laut Entwurf (§ 9) wird die Leistung nur bei gemeinsamer Nutzung über
+die Hauptleitung bzw. am selben Standort verrechnet. Eine Erneuerbare-Energie-Gemeinschaft über
+das öffentliche Netz senkt den Leistungspreis nicht — sie wirkt nur auf den Arbeitspreis. Die
+Integration rechnet deshalb mit dem physischen Netzbezug.
+
 ## Installation
 
 ### HACS (benutzerdefiniertes Repository)
@@ -43,7 +103,7 @@ Monat — genau hier setzt Peak-Shaving an.
 Ordner `custom_components/netzentgelt` nach `<config>/custom_components/netzentgelt` kopieren,
 Home Assistant neu starten, Integration wie oben hinzufügen.
 
-Mindestversion: Home Assistant 2025.1.
+Mindestversion: Home Assistant 2026.3.
 
 ## Konfiguration
 
@@ -237,6 +297,14 @@ clock-aligned 15-minute average grid import power per calendar month is billed (
 capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00, WiNAP 1 Oct–31 Mar
 22:00–04:00 (a night belongs to the day it starts on).
 
+- **Requirements:** Home Assistant ≥ 2026.3 and a frequently updated **grid import** energy sensor
+  at the connection point. Best source: the smart meter's local customer interface
+  (“Kundenschnittstelle”, optical or M-Bus; usually must be enabled by the grid operator, data is
+  AES-encrypted, key from the operator's portal). An inverter/3-phase meter measuring total grid
+  import also works (≈ 0.5 % below the utility meter in our test). Not suitable: household
+  consumption in PV homes, sub-meters, next-day portal data (use those only with `tools/replay.py`
+  for validation). The integration measures and warns; throttling is up to your own automation
+  (or e.g. an evcc `circuit` with `maxPower`).
 - **Install:** HACS → custom repository `https://github.com/neuhubereco/ha-netzentgelt`
   (category *Integration*), restart, add “Netzentgelt AT”.
 - **Configure:** grid import energy sensor (Wh/kWh/MWh, `total`/`total_increasing`), optional grid
