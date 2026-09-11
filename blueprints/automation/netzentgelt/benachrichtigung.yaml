@@ -6,10 +6,11 @@ blueprint:
     wenn die **Monatsspitze** über die Staffelgrenze steigt.
 
 
-    Drossel gegen Spam: „Spitze droht“ höchstens einmal je Drosselzeit;
-    eine neue Monatsspitze über der Staffelgrenze nur beim ersten
-    Überschreiten und danach erst wieder, wenn sie um die Mindeststeigerung
-    weiter gewachsen ist.
+    Drossel gegen Spam: „Spitze droht“ höchstens einmal je Drosselzeit.
+    Die Monatsspitze meldet sich beim ersten Überschreiten der Staffelgrenze
+    und danach bei jeder weiteren Stufe (Staffelgrenze + n × Stufe, z. B.
+    10,5 / 11 / 11,5 kW) — auch wenn sie in kleinen Schritten dorthin wächst.
+    Nach einem Neustart oder Neuladen der Integration kommt keine Nachricht.
   domain: automation
   source_url: https://github.com/neuhubereco/ha-netzentgelt/blob/main/blueprints/automation/netzentgelt/benachrichtigung.yaml
   homeassistant:
@@ -82,8 +83,11 @@ blueprint:
               unit_of_measurement: min
               mode: box
         step_kw:
-          name: Mindeststeigerung Monatsspitze
-          description: Nach der ersten Nachricht erst wieder melden, wenn die Monatsspitze um so viel gestiegen ist.
+          name: Stufe Monatsspitze
+          description: >-
+            Nach der ersten Nachricht erst wieder melden, wenn die Monatsspitze
+            die nächste Stufe (Staffelgrenze + Vielfaches dieses Werts) erreicht.
+            0 = bei jeder Steigerung.
           default: 0.5
           selector:
             number:
@@ -113,6 +117,9 @@ triggers:
     id: imminent
   - trigger: state
     entity_id: !input month_peak_sensor
+    not_from:
+      - unavailable
+      - unknown
     to: ~
     id: new_peak
 
@@ -132,11 +139,19 @@ conditions:
           - condition: trigger
             id: new_peak
           - condition: template
+            # Stufe = Anzahl ganzer Schritte über der Staffelgrenze. Ohne gültigen
+            # Vorwert (Neustart, Neuladen: unavailable → Wert) keine Nachricht.
             value_template: >-
-              {% set new = trigger.to_state.state | float(none) %}
-              {% set old = trigger.from_state.state | float(none) if trigger.from_state else none %}
-              {{ new is not none and new > limit_kw
-                 and (old is none or old <= limit_kw or new >= old + step_kw) }}
+              {%- set new = trigger.to_state.state | float(none) %}
+              {%- set old = trigger.from_state.state | float(none) if trigger.from_state else none %}
+              {%- if new is none or old is none or new <= limit_kw or new <= old -%}
+                false
+              {%- elif old <= limit_kw or step_kw <= 0 -%}
+                true
+              {%- else -%}
+                {{ ((new - limit_kw) / step_kw) | round(6) | int
+                   > ((old - limit_kw) / step_kw) | round(6) | int }}
+              {%- endif %}
 
 actions:
   - choose:

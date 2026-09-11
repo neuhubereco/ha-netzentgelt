@@ -406,3 +406,106 @@ async def test_load_shedding_restore_at_next_quarter(
     assert hass.states.get("input_boolean.boiler").state == "off"
     await _set(hass, "switch.netzentgelt_peak_shaving_aktiv", "off")
     assert hass.states.get("input_boolean.boiler").state == "on"
+
+
+async def _setup_notification(hass: HomeAssistant, tmp_path: Path, peak: str) -> list[ServiceCall]:
+    _install_blueprints(hass, tmp_path)
+    notes = _mock_service(hass, "notify", "handy")
+    hass.states.async_set("binary_sensor.netzentgelt_spitze_droht", "off", {"target_kw": 10.0})
+    hass.states.async_set("sensor.netzentgelt_prognose_viertelstunde", "5")
+    hass.states.async_set("sensor.netzentgelt_spielraum", "1")
+    hass.states.async_set(peak, "9.0")
+    hass.states.async_set("number.netzentgelt_staffelgrenze", "10.0")
+    await _setup_automation(
+        hass,
+        "benachrichtigung.yaml",
+        {
+            "peak_imminent": "binary_sensor.netzentgelt_spitze_droht",
+            "forecast_sensor": "sensor.netzentgelt_prognose_viertelstunde",
+            "headroom_sensor": "sensor.netzentgelt_spielraum",
+            "month_peak_sensor": peak,
+            "tier_limit": "number.netzentgelt_staffelgrenze",
+            "notify_action": "notify.handy",
+            "step_kw": 0.5,
+        },
+    )
+    return notes
+
+
+async def test_notification_reports_each_step_of_creeping_peak(hass: HomeAssistant, tmp_path: Path) -> None:
+    """Befund 4: 10,5 → 10,8 → 11,1 → 11,4 → 11,7 (Stufe 0,5) meldet 10,5 / 11,1 / 11,7."""
+    peak = "sensor.netzentgelt_monatsspitze"
+    notes = await _setup_notification(hass, tmp_path, peak)
+    reported = []
+    for value in ("10.5", "10.8", "11.1", "11.4", "11.7"):
+        before = len(notes)
+        await _set(hass, peak, value)
+        if len(notes) > before:
+            reported.append(value)
+    assert reported == ["10.5", "11.1", "11.7"]  # Stufen 10,5 / 11 / 11,5
+    # Monatswechsel (Spitze fällt) → nichts; erneutes Überschreiten → Nachricht
+    await _set(hass, peak, "0.8")
+    await _set(hass, peak, "10.2")
+    assert len(notes) == 4
+
+
+async def test_notification_silent_after_reload(hass: HomeAssistant, tmp_path: Path) -> None:
+    """Befund 5: unavailable/unknown → Wert (Neuladen, Neustart) oder neue Entity → keine Nachricht."""
+    peak = "sensor.netzentgelt_monatsspitze"
+    notes = await _setup_notification(hass, tmp_path, peak)
+    await _set(hass, peak, "10.5")
+    assert len(notes) == 1
+    for interim in ("unavailable", "unknown"):
+        await _set(hass, peak, interim)
+        await _set(hass, peak, "12.3")
+    hass.states.async_remove(peak)
+    await hass.async_block_till_done()
+    await _set(hass, peak, "12.4")
+    assert len(notes) == 1
+    await _set(hass, peak, "12.6")  # danach normal weiter: Stufe 12,5 erreicht
+    assert len(notes) == 2
+
+
+async def test_wallbox_blueprint_resets_when_disabled_during_pause(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """Befund 6: Peak-Shaving während einer Ladepause aus → Höchststrom und Laden wieder frei."""
+    _install_blueprints(hass, tmp_path)
+    current, release = "number.wallbox_ladestrom", "switch.wallbox_freigabe"
+    headroom, shaving = "sensor.netzentgelt_spielraum", "switch.netzentgelt_peak_shaving_aktiv"
+
+    def set_current(call: ServiceCall) -> None:
+        for entity_id in call.data["entity_id"]:
+            hass.states.async_set(entity_id, str(float(call.data["value"])))
+
+    def set_switch(state: str) -> Any:
+        def apply(call: ServiceCall) -> None:
+            for entity_id in call.data["entity_id"]:
+                hass.states.async_set(entity_id, state)
+
+        return apply
+
+    set_calls = _mock_service(hass, "number", "set_value", set_current)
+    _mock_service(hass, "switch", "turn_off", set_switch("off"))
+    on_calls = _mock_service(hass, "switch", "turn_on", set_switch("on"))
+    hass.states.async_set(current, "10")
+    hass.states.async_set(release, "on")
+    hass.states.async_set(headroom, "0.0", {"unit_of_measurement": "kW"})
+    hass.states.async_set(shaving, "on")
+    await _setup_automation(
+        hass,
+        "wallbox_spielraum.yaml",
+        {
+            "headroom_sensor": headroom,
+            "peak_shaving_switch": shaving,
+            "current_entity": current,
+            "pause_switch": release,
+        },
+    )
+    await _set_nowait(hass, headroom, "-9.0")  # selbst 6 A zu viel → Pause, Automation wartet
+    assert hass.states.get(release).state == "off"
+    assert set_calls[-1].data["value"] == 6
+    await _set(hass, shaving, "off")
+    assert set_calls[-1].data["value"] == 16
+    assert hass.states.get(current).state == "16.0"
+    assert [c.data["entity_id"] for c in on_calls] == [[release]]

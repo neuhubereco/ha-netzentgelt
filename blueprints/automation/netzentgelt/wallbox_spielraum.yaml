@@ -190,6 +190,16 @@ actions:
                          or states(headroom_entity) | float(0) >= (min_a + deadband) * kw_per_a }}
                     timeout: "00:30:00"
                     continue_on_timeout: true
+                  # Peak-Shaving während der Pause ausgeschaltet: Dieser Auslöser ging
+                  # verloren (mode: single) — Höchststrom deshalb hier setzen.
+                  - if:
+                      - "{{ reset_when_disabled and is_state(switch_entity, 'off') and states(current_entity) | is_number }}"
+                    then:
+                      - action: number.set_value
+                        target:
+                          entity_id: "{{ current_entity }}"
+                        data:
+                          value: "{{ max_a }}"
                   - action: switch.turn_on
                     target:
                       entity_id: "{{ pause_entity }}"
