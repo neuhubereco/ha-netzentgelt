@@ -21,10 +21,12 @@ Begriffe
 from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
+import csv
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 import math
+import re
 from typing import Any
 
 QUARTER = timedelta(minutes=15)
@@ -650,39 +652,318 @@ def energy_price(window: str, standard: float, snap: float, winap: float) -> flo
 
 
 # =============================================================================
+# Lastprofil: 96 Viertelstunden des lokalen Tages
+# =============================================================================
+
+SLOTS_PER_DAY = 96
+
+
+def local_slot(start: datetime, tz: tzinfo) -> tuple[date, int]:
+    """(lokales Datum, Viertelstunde des Tages 0–95) einer Viertelstunde.
+
+    Zuordnung über die lokale Wanduhrzeit des Beginns: An 25-Stunden-Tagen
+    (Umstellung auf Winterzeit) fallen 02:00–02:45 zweimal in denselben Slot,
+    an 23-Stunden-Tagen bleiben 02:00–02:45 leer.
+    """
+    _require_aware(start)
+    local = start.astimezone(tz)
+    return local.date(), local.hour * 4 + local.minute // 15
+
+
+def slot_labels() -> list[str]:
+    """96 Beschriftungen ``HH:MM`` (Beginn der Viertelstunde)."""
+    return [f"{slot // 4:02d}:{slot % 4 * 15:02d}" for slot in range(SLOTS_PER_DAY)]
+
+
+def round_list(values: list[float | None], digits: int = 3) -> list[float | None]:
+    """Liste runden (für Attribute); ``None`` bleibt ``None``."""
+    return [None if v is None else round(v, digits) for v in values]
+
+
+def _float_list(data: Any, length: int = SLOTS_PER_DAY) -> list[float | None] | None:
+    if not isinstance(data, list) or len(data) != length:
+        return None
+    return [_to_float(v) for v in data]
+
+
+@dataclass(slots=True)
+class SlotProfile:
+    """Maximum, Summe und Anzahl je Viertelstunde des Tages (Monatsprofil).
+
+    Summe und Anzahl statt Mittelwert, damit doppelte Slots (Zeitumstellung)
+    und spätere Viertelstunden korrekt in den Mittelwert eingehen.
+    """
+
+    max: list[float | None] = field(default_factory=lambda: [None] * SLOTS_PER_DAY)
+    sum: list[float] = field(default_factory=lambda: [0.0] * SLOTS_PER_DAY)
+    count: list[int] = field(default_factory=lambda: [0] * SLOTS_PER_DAY)
+
+    def add(self, slot: int, kw: float) -> None:
+        """Eine gültige Viertelstunde verbuchen."""
+        current = self.max[slot]
+        self.max[slot] = kw if current is None else max(current, kw)
+        self.sum[slot] += kw
+        self.count[slot] += 1
+
+    @property
+    def total(self) -> int:
+        """Anzahl verbuchter Viertelstunden."""
+        return sum(self.count)
+
+    def avg(self) -> list[float | None]:
+        """Mittelwert je Slot (``None`` ohne Werte)."""
+        return [s / n if n else None for s, n in zip(self.sum, self.count, strict=True)]
+
+    def merged(self, other: SlotProfile) -> SlotProfile:
+        """Kombination zweier Profile: Maximum je Slot, gemeinsamer Mittelwert."""
+        return SlotProfile(
+            max=[_max_or_none(a, b) for a, b in zip(self.max, other.max, strict=True)],
+            sum=[a + b for a, b in zip(self.sum, other.sum, strict=True)],
+            count=[a + b for a, b in zip(self.count, other.count, strict=True)],
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        """Für den Store: ``profile_max``, ``profile_avg``, ``profile_count``."""
+        return {
+            "profile_max": round_list(self.max, 4),
+            "profile_avg": round_list(self.avg(), 4),
+            "profile_count": list(self.count),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SlotProfile:
+        """Aus dem Store laden; unvollständige Daten ergeben ein leeres Profil."""
+        maxima = _float_list(data.get("profile_max"))
+        averages = _float_list(data.get("profile_avg"))
+        counts = data.get("profile_count")
+        if (
+            maxima is None
+            or averages is None
+            or not isinstance(counts, list)
+            or len(counts) != SLOTS_PER_DAY
+        ):
+            return cls()
+        count = [int(c) if isinstance(c, (int, float)) and c > 0 else 0 for c in counts]
+        return cls(
+            max=[m if n else None for m, n in zip(maxima, count, strict=True)],
+            sum=[(a or 0.0) * n for a, n in zip(averages, count, strict=True)],
+            count=count,
+        )
+
+
+def _max_or_none(a: float | None, b: float | None) -> float | None:
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return max(a, b)
+
+
+@dataclass(slots=True)
+class DayProfiles:
+    """Viertelstundenwerte (kW) von heute und gestern, je lokalem Datum."""
+
+    tz: tzinfo
+    days: dict[str, list[float | None]] = field(default_factory=dict)
+
+    def add(self, result: QuarterResult) -> None:
+        """Gültige Viertelstunde eintragen (doppelte Slots: Maximum)."""
+        if not result.valid or result.kw is None:
+            return
+        day, slot = local_slot(result.start, self.tz)
+        self._set(day, slot, result.kw, only_empty=False)
+
+    def fill(self, start: datetime, kw: float) -> bool:
+        """Slot nur füllen, wenn noch kein eigener Wert existiert (Import)."""
+        day, slot = local_slot(start, self.tz)
+        return self._set(day, slot, kw, only_empty=True)
+
+    def _set(self, day: date, slot: int, kw: float, *, only_empty: bool) -> bool:
+        values = self.days.setdefault(day.isoformat(), [None] * SLOTS_PER_DAY)
+        current = values[slot]
+        if current is not None and only_empty:
+            return False
+        values[slot] = kw if current is None else max(current, kw)
+        return True
+
+    def get(self, day: date) -> list[float | None]:
+        """96 Werte eines Tages (``None`` = fehlend/ungültig)."""
+        return list(self.days.get(day.isoformat(), [None] * SLOTS_PER_DAY))
+
+    def prune(self, today: date) -> None:
+        """Nur heute und gestern behalten."""
+        keep = {today.isoformat(), (today - timedelta(days=1)).isoformat()}
+        for key in [k for k in self.days if k not in keep]:
+            del self.days[key]
+
+    def as_dict(self) -> dict[str, Any]:
+        """Für den Store."""
+        return {key: round_list(values, 4) for key, values in self.days.items()}
+
+    @classmethod
+    def from_dict(cls, tz: tzinfo, data: Any) -> DayProfiles:
+        """Aus dem Store laden (tolerant)."""
+        profiles = cls(tz=tz)
+        if isinstance(data, dict):
+            for key, values in data.items():
+                parsed = _float_list(values)
+                if parsed is not None and _valid_date_key(key):
+                    profiles.days[key] = parsed
+        return profiles
+
+
+def _valid_date_key(key: Any) -> bool:
+    if not isinstance(key, str):
+        return False
+    try:
+        date.fromisoformat(key)
+    except ValueError:
+        return False
+    return True
+
+
+# =============================================================================
 # Monatsspitze und Verlauf
 # =============================================================================
 
-HISTORY_MONTHS = 24
+HISTORY_MONTHS = 36
+
+SOURCE_MEASURED = "measured"
+SOURCE_IMPORTED = "imported"
+SOURCE_MIXED = "mixed"
+
+
+@dataclass(slots=True)
+class ImportedMonth:
+    """Aus einem Lastgang-Import stammende Kennzahlen eines Monats."""
+
+    peak_kw: float | None = None
+    peak_start: str | None = None
+    quarters: int = 0
+    profile: SlotProfile = field(default_factory=SlotProfile)
+
+    def add(self, start: datetime, kw: float, tz: tzinfo) -> None:
+        """Importierte Viertelstunde verbuchen (bei Gleichstand gilt die frühere)."""
+        self.quarters += 1
+        if self.peak_kw is None or kw > self.peak_kw:
+            self.peak_kw = kw
+            self.peak_start = start.isoformat()
+        self.profile.add(local_slot(start, tz)[1], kw)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Für den Store."""
+        return {
+            "peak_kw": self.peak_kw,
+            "peak_start": self.peak_start,
+            "quarters": self.quarters,
+            **self.profile.as_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> ImportedMonth | None:
+        """Aus dem Store laden (tolerant)."""
+        if not isinstance(data, dict):
+            return None
+        peak = _to_float(data.get("peak_kw"))
+        return cls(
+            peak_kw=peak,
+            peak_start=data.get("peak_start") if peak is not None else None,
+            quarters=int(data.get("quarters", 0) or 0),
+            profile=SlotProfile.from_dict(data),
+        )
 
 
 @dataclass(slots=True)
 class MonthStats:
-    """Kennzahlen eines Kalendermonats."""
+    """Kennzahlen eines Kalendermonats.
+
+    ``peak_kw``/``peak_start``, die Zähler und ``profile`` stammen aus eigener
+    Messung; ``imported`` getrennt davon aus einem Lastgang-Import. Angezeigt
+    wird die Kombination (``combined_peak``/``combined_profile``). Die Trennung
+    macht einen wiederholten Import idempotent.
+    """
 
     peak_kw: float | None = None
     peak_start: str | None = None
     valid_quarters: int = 0
     invalid_quarters: int = 0
+    profile: SlotProfile = field(default_factory=SlotProfile)
+    imported: ImportedMonth | None = None
+
+    @property
+    def has_measurement(self) -> bool:
+        """True, wenn eigene Viertelstunden (gültig oder nicht) verbucht sind."""
+        return self.peak_kw is not None or self.valid_quarters > 0 or self.invalid_quarters > 0
+
+    @property
+    def source(self) -> str:
+        """``measured``, ``imported`` oder ``mixed``."""
+        if self.imported is None:
+            return SOURCE_MEASURED
+        return SOURCE_MIXED if self.has_measurement else SOURCE_IMPORTED
+
+    def combined_peak(self) -> tuple[float | None, str | None]:
+        """Höchste Viertelstunde aus Messung und Import (kW, ISO-Beginn)."""
+        peak, start = self.peak_kw, self.peak_start
+        imp = self.imported
+        if imp is not None and imp.peak_kw is not None and (peak is None or imp.peak_kw > peak):
+            return imp.peak_kw, imp.peak_start
+        return peak, start
+
+    def combined_profile(self) -> SlotProfile:
+        """Monatsprofil aus Messung und Import.
+
+        Überlappen Messung und Import zeitlich, gehen die gemeinsamen
+        Viertelstunden doppelt in den Mittelwert ein (Näherung).
+        """
+        if self.imported is None:
+            return self.profile
+        return self.profile.merged(self.imported.profile)
+
+    def reset_measurement(self) -> None:
+        """Eigene Messwerte verwerfen (Import mit ``overwrite``)."""
+        self.peak_kw = None
+        self.peak_start = None
+        self.valid_quarters = 0
+        self.invalid_quarters = 0
+        self.profile = SlotProfile()
+
+    def summary(self) -> dict[str, Any]:
+        """Kennzahlen für das ``history``-Attribut (ohne Profile)."""
+        peak, start = self.combined_peak()
+        return {
+            "peak_kw": peak,
+            "peak_start": start,
+            "valid_quarters": self.valid_quarters,
+            "invalid_quarters": self.invalid_quarters,
+            "imported_quarters": self.imported.quarters if self.imported else 0,
+            "source": self.source,
+        }
 
     def as_dict(self) -> dict[str, Any]:
-        """Serialisierbare Darstellung."""
-        return {
+        """Serialisierbare Darstellung (Store)."""
+        data: dict[str, Any] = {
             "peak_kw": self.peak_kw,
             "peak_start": self.peak_start,
             "valid_quarters": self.valid_quarters,
             "invalid_quarters": self.invalid_quarters,
+            **self.profile.as_dict(),
         }
+        if self.imported is not None:
+            data["imported"] = self.imported.as_dict()
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> MonthStats:
-        """Aus gespeicherten Daten laden (tolerant)."""
+        """Aus gespeicherten Daten laden (tolerant, auch Daten aus v0.1)."""
         peak = _to_float(data.get("peak_kw"))
         return cls(
             peak_kw=peak,
             peak_start=data.get("peak_start") if peak is not None else None,
             valid_quarters=int(data.get("valid_quarters", 0) or 0),
             invalid_quarters=int(data.get("invalid_quarters", 0) or 0),
+            profile=SlotProfile.from_dict(data),
+            imported=ImportedMonth.from_dict(data.get("imported")),
         )
 
 
@@ -706,6 +987,7 @@ class PeakTracker:
             stats.invalid_quarters += 1
             return False
         stats.valid_quarters += 1
+        stats.profile.add(local_slot(result.start, self.tz)[1], result.kw)
         if stats.peak_kw is None or result.kw > stats.peak_kw:
             stats.peak_kw = result.kw
             stats.peak_start = result.start.isoformat()
@@ -731,8 +1013,8 @@ class PeakTracker:
         return self.months.setdefault(self.current, MonthStats())
 
     def history(self) -> dict[str, dict[str, Any]]:
-        """Verlauf (neuester Monat zuerst): Monat → {kw, Zeitpunkt, …}."""
-        return {key: self.months[key].as_dict() for key in sorted(self.months, reverse=True)}
+        """Verlauf (neuester Monat zuerst): Monat → {kw, Zeitpunkt, Quelle, …}."""
+        return {key: self.months[key].summary() for key in sorted(self.months, reverse=True)}
 
     def as_dict(self) -> dict[str, Any]:
         """Serialisierbare Darstellung für den Store."""
@@ -760,3 +1042,348 @@ def _valid_month_key(key: Any) -> bool:
         return 1 <= int(key[5:]) <= 12 and int(key[:4]) > 0
     except ValueError:
         return False
+
+
+def month_add(key: str, delta: int) -> str:
+    """Monatsschlüssel ``YYYY-MM`` um ``delta`` Monate verschieben."""
+    index = int(key[:4]) * 12 + int(key[5:]) - 1 + delta
+    return f"{index // 12:04d}-{index % 12 + 1:02d}"
+
+
+@dataclass(slots=True)
+class MergeReport:
+    """Ergebnis von :func:`merge_import` (Monatsschlüssel je Kategorie)."""
+
+    imported: list[str] = field(default_factory=list)
+    merged: list[str] = field(default_factory=list)
+    overwritten: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+
+def merge_import(
+    tracker: PeakTracker,
+    months: dict[str, ImportedMonth],
+    current: str,
+    *,
+    overwrite: bool = False,
+) -> MergeReport:
+    """Importierte Monate in den Verlauf übernehmen.
+
+    * Monat ohne eigene Messung → Import übernehmen (``source: imported``).
+    * Monat mit eigener Messung → nur mit ``overwrite`` ersetzen; sonst
+      zusammenführen: Spitze = Maximum aus beidem (``source: mixed``).
+    * Übersprungen: Monate ohne Werte, nach dem laufenden Monat oder älter
+      als der Verlauf (``HISTORY_MONTHS``).
+
+    Der Import wird je Monat getrennt von den Messwerten gespeichert und
+    ersetzt einen früheren Import desselben Monats — ein erneuter Import
+    derselben Datei ändert also nichts.
+    """
+    report = MergeReport()
+    tracker.roll_to(current)
+    newest = tracker.current or current
+    oldest = month_add(newest, -(HISTORY_MONTHS - 1))
+    for key in sorted(months):
+        imported = months[key]
+        if imported.quarters == 0 or not _valid_month_key(key) or key < oldest or key > newest:
+            report.skipped.append(key)
+            continue
+        stats = tracker.months.setdefault(key, MonthStats())
+        if stats.has_measurement:
+            if overwrite:
+                stats.reset_measurement()
+                report.overwritten.append(key)
+            else:
+                report.merged.append(key)
+        else:
+            report.imported.append(key)
+        stats.imported = imported
+    tracker.roll_to(newest)
+    return report
+
+
+# =============================================================================
+# Import eines Lastgangs (z. B. Portal-Export des Netzbetreibers)
+# =============================================================================
+
+VALUE_KW = "kW"
+VALUE_KWH = "kWh"
+COLUMN_FROM_HEADER = "header"
+COLUMN_DETECTED = "detected"
+COLUMN_ASSUMED = "assumed"
+
+_DE_TIMESTAMP = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?$")
+_NUMBER = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+_KW_HEADER = re.compile(r"(?<![a-z])kw(?![a-z])")
+_KWH_HEADER = re.compile(r"(?<![a-z])kwh(?![a-z])")
+_DETECT_ROWS = 200
+
+
+class LoadProfileError(ValueError):
+    """Die Datei enthält keinen verwertbaren Lastgang (``reason`` = Übersetzungsschlüssel)."""
+
+    def __init__(self, reason: str) -> None:
+        """Mit Grund initialisieren."""
+        super().__init__(reason)
+        self.reason = reason
+
+
+@dataclass(slots=True)
+class LoadProfile:
+    """Gelesener Lastgang: Beginn der Viertelstunde (UTC) → mittlere Leistung (kW)."""
+
+    quarters: dict[datetime, float]
+    rows: int
+    rows_skipped: int
+    duplicates: int
+    value_column: str
+    value_column_source: str
+
+    @property
+    def first(self) -> datetime | None:
+        """Beginn der ersten Viertelstunde."""
+        return min(self.quarters) if self.quarters else None
+
+    @property
+    def last(self) -> datetime | None:
+        """Beginn der letzten Viertelstunde."""
+        return max(self.quarters) if self.quarters else None
+
+
+def parse_number(text: str) -> float | None:
+    """Zahl mit Dezimalpunkt oder -komma (``0,354``, ``1.234,5``, ``1,234.5``)."""
+    s = text.strip().replace("\u00a0", "").replace(" ", "")
+    if not s:
+        return None
+    if "," in s and "." in s:
+        s = s.replace(".", "").replace(",", ".") if s.rfind(",") > s.rfind(".") else s.replace(",", "")
+    elif "," in s:
+        if s.count(",") > 1:
+            return None
+        s = s.replace(",", ".")
+    if not _NUMBER.fullmatch(s):
+        return None
+    return float(s)
+
+
+def parse_timestamp(text: str) -> datetime | None:
+    """``TT.MM.JJJJ HH:MM[:SS]`` (naiv, Ortszeit) oder ISO 8601 (mit/ohne Zeitzone).
+
+    ``24:00`` wird als 00:00 des Folgetags gelesen (bei Zeitstempel = Ende
+    üblich). Reine Datumsangaben ohne Uhrzeit werden abgelehnt.
+    """
+    s = text.strip()
+    match = _DE_TIMESTAMP.match(s)
+    if match:
+        day, month, year, hour, minute, second = (int(g) if g else 0 for g in match.groups())
+        extra = timedelta()
+        if hour == 24 and minute == 0 and second == 0:
+            hour, extra = 0, timedelta(days=1)
+        try:
+            return datetime(year, month, day, hour, minute, second) + extra
+        except ValueError:
+            return None
+    if len(s) < 16 or s[4] != "-" or ":" not in s:
+        return None
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _localize(naive: datetime, tz: tzinfo, seen: set[datetime]) -> datetime | None:
+    """Naive Ortszeit → zeitzonenbehaftet; ``None`` für nicht existente Zeiten.
+
+    Mehrdeutige Zeiten (Umstellung auf Winterzeit, 02:00–02:59 zweimal)
+    gelten beim ersten Auftreten als Sommerzeit, beim zweiten als Winterzeit.
+    """
+    first = naive.replace(tzinfo=tz, fold=0)
+    if first.astimezone(UTC).astimezone(tz).replace(tzinfo=None) != naive:
+        return None  # Sprung auf Sommerzeit: Uhrzeit gibt es nicht
+    second = naive.replace(tzinfo=tz, fold=1)
+    repeated = naive in seen
+    seen.add(naive)
+    if repeated and first.utcoffset() != second.utcoffset():
+        return second
+    return first
+
+
+def _detect_delimiter(lines: list[str]) -> str:
+    sample = lines[:20]
+    if any(";" in line for line in sample):
+        return ";"
+    if any("\t" in line for line in sample):
+        return "\t"
+    return ","
+
+
+def _find_timestamp(cells: list[str]) -> tuple[int, datetime] | None:
+    for index, cell in enumerate(cells):
+        if (ts := parse_timestamp(cell)) is not None:
+            return index, ts
+    return None
+
+
+def _header_columns(cells: list[str]) -> tuple[int | None, int | None]:
+    """(Index kW-Spalte, Index kWh-Spalte) einer Kopfzeile."""
+    kw_col = kwh_col = None
+    for index, cell in enumerate(cells):
+        name = cell.lower()
+        if kwh_col is None and _KWH_HEADER.search(name):
+            kwh_col = index
+        elif kw_col is None and _KW_HEADER.search(name):
+            kw_col = index
+    return kw_col, kwh_col
+
+
+def _numeric_columns(cells: list[str], after: int) -> list[tuple[int, float]]:
+    return [
+        (index, value)
+        for index, cell in enumerate(cells)
+        if index > after and (value := parse_number(cell)) is not None
+    ]
+
+
+def _detect_value_column(data_rows: list[tuple[int, list[str]]]) -> tuple[int, str, str]:
+    """Ohne Kopfzeile: (Spalte, Einheit, Herkunft) der Wertspalte bestimmen.
+
+    Zwei Zahlenspalten, bei denen die zweite das Vierfache der ersten ist,
+    werden als kWh/kW erkannt (kW wird genommen). Sonst gilt die erste
+    Zahlenspalte als Energie der Viertelstunde in kWh (Annahme).
+    """
+    first = _numeric_columns(data_rows[0][1], data_rows[0][0])
+    if not first:
+        raise LoadProfileError("no_value_column")
+    if len(first) >= 2:
+        col_a, col_b = first[0][0], first[1][0]
+        checked = nonzero = 0
+        for _ts_col, cells in data_rows[:_DETECT_ROWS]:
+            if len(cells) <= col_b:
+                continue
+            a, b = parse_number(cells[col_a]), parse_number(cells[col_b])
+            if a is None or b is None:
+                continue
+            checked += 1
+            nonzero += a > 0
+            if abs(b - 4 * a) > 0.01 + 0.01 * abs(b):
+                break
+        else:
+            if checked and nonzero:
+                return col_b, VALUE_KW, COLUMN_DETECTED
+    return first[0][0], VALUE_KWH, COLUMN_ASSUMED
+
+
+def parse_load_profile(text: str, tz: tzinfo, *, timestamp_is_end: bool = False) -> LoadProfile:
+    """Lastgang-CSV lesen.
+
+    * Trennzeichen ``;``, Tabulator oder ``,``; BOM und Anführungszeichen
+      werden entfernt; Kopfzeile optional.
+    * Zeitstempel ``TT.MM.JJJJ HH:MM`` (Ortszeit ``tz``) oder ISO 8601.
+      Standard: Beginn der Viertelstunde; mit ``timestamp_is_end`` das Ende.
+    * Wertspalte: Spalte „kW“ (Leistung) vor „kWh“ (Energie × 4). Ohne
+      Kopfzeile siehe :func:`_detect_value_column`. Weitere Spalten (Status)
+      werden ignoriert.
+    * Übersprungen (``rows_skipped``): Zeilen ohne Zeitstempel oder Wert,
+      negative Werte, nicht existente Ortszeiten, nicht viertelstündliche
+      Zeitstempel. Mehrfach vorkommende Viertelstunden: letzter Wert gilt.
+    """
+    text = text.lstrip("\ufeff")
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        raise LoadProfileError("no_data")
+    delimiter = _detect_delimiter(lines)
+    rows = [
+        [cell.strip().strip('"').strip() for cell in row] for row in csv.reader(lines, delimiter=delimiter)
+    ]
+
+    header_cols: tuple[int | None, int | None] = (None, None)
+    data_rows: list[tuple[int, list[str], datetime]] = []
+    skipped = 0  # Zeilen ohne Zeitstempel nach Kopfzeile bzw. erster Datenzeile
+    for cells in rows:
+        found = _find_timestamp(cells)
+        if found is not None:
+            data_rows.append((found[0], cells, found[1]))
+            continue
+        if not data_rows:
+            cols = _header_columns(cells)
+            if cols != (None, None):
+                # Kopfzeile; Zeilen davor (z. B. Zählpunkt-Metadaten) zählen nicht.
+                header_cols, skipped = cols, 0
+                continue
+        skipped += 1
+    if not data_rows:
+        raise LoadProfileError("no_data")
+
+    kw_col, kwh_col = header_cols
+    if kw_col is not None:
+        value_col, unit, source = kw_col, VALUE_KW, COLUMN_FROM_HEADER
+    elif kwh_col is not None:
+        value_col, unit, source = kwh_col, VALUE_KWH, COLUMN_FROM_HEADER
+    else:
+        value_col, unit, source = _detect_value_column([(ts_col, cells) for ts_col, cells, _ in data_rows])
+    factor = 1.0 if unit == VALUE_KW else 1 / QUARTER_HOURS
+
+    quarters: dict[datetime, float] = {}
+    duplicates = accepted = 0
+    seen: set[datetime] = set()
+    for _ts_col, cells, raw_ts in data_rows:
+        value = parse_number(cells[value_col]) if value_col < len(cells) else None
+        if value is None or value < 0:
+            skipped += 1
+            continue
+        moment = raw_ts if raw_ts.tzinfo is not None else _localize(raw_ts, tz, seen)
+        if moment is None:
+            skipped += 1
+            continue
+        start = moment.astimezone(UTC) - (QUARTER if timestamp_is_end else timedelta())
+        if start.timestamp() % QUARTER_SECONDS:
+            skipped += 1
+            continue
+        if start in quarters:
+            duplicates += 1
+        quarters[start] = value * factor
+        accepted += 1
+    if not quarters:
+        raise LoadProfileError("no_valid_rows")
+    return LoadProfile(
+        quarters=dict(sorted(quarters.items())),
+        rows=accepted,
+        rows_skipped=skipped,
+        duplicates=duplicates,
+        value_column=unit,
+        value_column_source=source,
+    )
+
+
+def summarize_months(quarters: dict[datetime, float], tz: tzinfo) -> dict[str, ImportedMonth]:
+    """Importierte Viertelstunden je Kalendermonat (Zuordnung über den Beginn)."""
+    months: dict[str, ImportedMonth] = {}
+    for start, kw in sorted(quarters.items()):
+        months.setdefault(quarter_month_key(start, tz), ImportedMonth()).add(start, kw, tz)
+    return months
+
+
+@dataclass(slots=True, frozen=True)
+class HourStat:
+    """Stundenwert für die Langzeitstatistik (Beginn in UTC)."""
+
+    start: datetime
+    mean: float
+    min: float
+    max: float
+    quarters: int
+
+
+def hourly_statistics(quarters: dict[datetime, float]) -> list[HourStat]:
+    """Mittel/Min/Max der Viertelstunden je voller UTC-Stunde (Beginn der Viertelstunde zählt).
+
+    Stunden mit fehlenden Viertelstunden werden aus den vorhandenen gebildet.
+    """
+    buckets: dict[datetime, list[float]] = {}
+    for start, kw in quarters.items():
+        hour = datetime.fromtimestamp(start.timestamp() // 3600 * 3600, tz=UTC)
+        buckets.setdefault(hour, []).append(kw)
+    return [
+        HourStat(hour, sum(values) / len(values), min(values), max(values), len(values))
+        for hour, values in sorted(buckets.items())
+    ]

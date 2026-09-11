@@ -379,16 +379,16 @@ def test_invalid_quarters_never_enter_peak() -> None:
     assert stats.valid_quarters == 1
 
 
-def test_history_keeps_24_months_and_roundtrips() -> None:
+def test_history_keeps_36_months_and_roundtrips() -> None:
     tracker = calc.PeakTracker(tz=VIENNA)
-    for i in range(30):
+    for i in range(40):
         year, month = 2025 + (i // 12), i % 12 + 1
         tracker.add(_q(local(year, month, 2, 12, 0), float(i)))
-    assert len(tracker.months) == 24
-    assert min(tracker.months) == "2025-07"
+    assert len(tracker.months) == 36
+    assert min(tracker.months) == "2025-05"
     restored = calc.PeakTracker.from_dict(VIENNA, tracker.as_dict())
     assert restored.as_dict() == tracker.as_dict()
-    assert next(iter(restored.history())) == "2027-06"
+    assert next(iter(restored.history())) == "2028-04"
 
 
 # --------------------------------------------------------------- Verrechnung
