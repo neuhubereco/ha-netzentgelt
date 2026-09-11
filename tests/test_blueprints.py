@@ -7,7 +7,7 @@ Services) — nicht gegen eine echte Wallbox oder ein echtes Handy.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 import shutil
 from typing import Any
@@ -92,7 +92,7 @@ from freezegun.api import FrozenDateTimeFactory  # noqa: E402
 from homeassistant.components.blueprint.schemas import BLUEPRINT_SCHEMA  # noqa: E402
 from homeassistant.core import HomeAssistant, ServiceCall  # noqa: E402
 from homeassistant.setup import async_setup_component  # noqa: E402
-from homeassistant.util import yaml as yaml_util  # noqa: E402
+from homeassistant.util import dt as dt_util, yaml as yaml_util  # noqa: E402
 from pytest_homeassistant_custom_component.common import async_fire_time_changed  # noqa: E402
 
 
@@ -335,3 +335,74 @@ async def test_notification_blueprint_messages_and_throttle(
     await _set(hass, imminent, "off", target_kw=10.0)
     await _set(hass, imminent, "on", target_kw=10.0)
     assert len(notes) == 4
+
+
+async def test_load_shedding_restore_at_next_quarter(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path
+) -> None:
+    """Option „erst zur nächsten Viertelstunde wieder einschalten“."""
+    vienna = dt_util.get_time_zone("Europe/Vienna")
+    await hass.config.async_set_time_zone("Europe/Vienna")
+    freezer.move_to(datetime(2026, 9, 11, 10, 2, 0, tzinfo=vienna))
+    _install_blueprints(hass, tmp_path)
+    assert await async_setup_component(hass, "homeassistant", {})
+    booleans = {"input_boolean": {"boiler": {"initial": True}}}
+    assert await async_setup_component(hass, "input_boolean", booleans)
+    imminent = "binary_sensor.netzentgelt_spitze_droht"
+    hass.states.async_set(imminent, "off")
+    hass.states.async_set("switch.netzentgelt_peak_shaving_aktiv", "on")
+    await _setup_automation(
+        hass,
+        "last_abwerfen.yaml",
+        {
+            "peak_imminent": imminent,
+            "peak_shaving_switch": "switch.netzentgelt_peak_shaving_aktiv",
+            "loads": ["input_boolean.boiler"],
+            "wait_minutes": 2,
+            "restore_at_quarter": True,
+        },
+    )
+    await _set_nowait(hass, imminent, "on")
+    assert hass.states.get("input_boolean.boiler").state == "off"
+    await _set_nowait(hass, imminent, "off")
+    # 10:04:05: Wartezeit (2 min) vorbei, aber noch nicht :15 → bleibt aus
+    freezer.tick(timedelta(minutes=2, seconds=5))
+    async_fire_time_changed(hass)
+    await _settle()
+    assert hass.states.get("input_boolean.boiler").state == "off"
+    # 10:15:00 → neue Viertelstunde → wieder ein
+    freezer.move_to(datetime(2026, 9, 11, 10, 15, 0, tzinfo=vienna))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get("input_boolean.boiler").state == "on"
+
+    async def at(minute: int, second: int = 0) -> None:
+        freezer.move_to(datetime(2026, 9, 11, 10, minute, second, tzinfo=vienna))
+        async_fire_time_changed(hass)
+        await _settle()
+
+    # Droht an der Grenze wieder eine Spitze, bleibt die Last bis zur nächsten Grenze aus
+    await at(20)
+    await _set_nowait(hass, imminent, "on")
+    assert hass.states.get("input_boolean.boiler").state == "off"
+    await _set_nowait(hass, imminent, "off")
+    await at(23, 5)  # Wartezeit vorbei, Automation wartet auf :30
+    await _set_nowait(hass, imminent, "on")  # erneut drohende Spitze (Automation läuft noch)
+    await at(30)
+    assert hass.states.get("input_boolean.boiler").state == "off"
+    await at(31)
+    await _set_nowait(hass, imminent, "off")  # nach der ersten Minute der Viertelstunde
+    await at(33)
+    assert hass.states.get("input_boolean.boiler").state == "off"
+    await at(45)
+    await hass.async_block_till_done()
+    assert hass.states.get("input_boolean.boiler").state == "on"
+
+    # Peak-Shaving während des Wartens auf die Viertelstunde ausgeschaltet → sofort ein
+    await at(50)
+    await _set_nowait(hass, imminent, "on")
+    await _set_nowait(hass, imminent, "off")
+    await at(52, 5)
+    assert hass.states.get("input_boolean.boiler").state == "off"
+    await _set(hass, "switch.netzentgelt_peak_shaving_aktiv", "off")
+    assert hass.states.get("input_boolean.boiler").state == "on"

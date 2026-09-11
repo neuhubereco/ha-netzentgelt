@@ -70,7 +70,9 @@ blueprint:
       description: >-
         Nach der Wartezeit zusätzlich bis :00/:15/:30/:45 warten. Die neue
         Viertelstunde beginnt bei null — so reißt das Wiedereinschalten das
-        Ziel seltener.
+        Ziel seltener. Droht an der Grenze wieder eine Spitze, wird bis zur
+        nächsten Grenze ohne drohende Spitze gewartet (höchstens bis zur
+        Höchstdauer ab dem Abschalten).
       default: false
       selector:
         boolean:
@@ -81,6 +83,9 @@ max_exceeded: silent
 variables:
   load_entities: !input loads
   restore_at_quarter: !input restore_at_quarter
+  imminent_entity: !input peak_imminent
+  switch_entity: !input peak_shaving_switch
+  max_minutes: !input max_minutes
 
 triggers:
   - trigger: state
@@ -95,6 +100,7 @@ conditions:
 actions:
   - variables:
       switched_off: "{{ load_entities | select('is_state', 'on') | list }}"
+      deadline: "{{ now().timestamp() + max_minutes * 60 }}"
   - condition: template
     value_template: "{{ switched_off | count > 0 }}"
   - action: homeassistant.turn_off
@@ -117,8 +123,14 @@ actions:
   - if:
       - "{{ restore_at_quarter and wait.trigger is not none and wait.trigger.id == 'ended' }}"
     then:
-      - wait_template: "{{ now().minute % 15 == 0 }}"
-        timeout: "00:15:00"
+      # Erste Minute einer Viertelstunde ohne drohende Spitze; sofort bei
+      # Ausschalten von Peak-Shaving; spätestens zur Höchstdauer ab Abschalten.
+      - wait_template: >-
+          {{ (now().minute % 15 == 0 and is_state(imminent_entity, 'off'))
+             or not is_state(switch_entity, 'on')
+             or now().timestamp() >= deadline }}
+        timeout:
+          minutes: !input max_minutes
         continue_on_timeout: true
   - action: homeassistant.turn_on
     target:
