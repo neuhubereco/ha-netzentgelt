@@ -1,0 +1,93 @@
+# Beispiel-Dashboard (Lovelace, YAML-Modus oder "Rohkonfiguration bearbeiten").
+# Nur Core-Karten. Die Entity-IDs entstehen aus Gerätename + Entity-Name in der
+# Systemsprache beim Anlegen — hier für Gerätename "Netzentgelt" und Deutsch.
+# Bei Englisch z. B. sensor.netzentgelt_headroom statt sensor.netzentgelt_spielraum.
+title: Netzentgelt
+views:
+  - title: Leistungspreis
+    path: netzentgelt
+    icon: mdi:transmission-tower-import
+    cards:
+      - type: gauge
+        name: Prognose laufende Viertelstunde
+        entity: sensor.netzentgelt_prognose_viertelstunde
+        min: 0
+        max: 20
+        needle: true
+        severity:
+          green: 0
+          yellow: 8
+          red: 10
+
+      - type: entities
+        title: Jetzt
+        entities:
+          - entity: binary_sensor.netzentgelt_spitze_droht
+          - entity: sensor.netzentgelt_spielraum
+          - entity: sensor.netzentgelt_15_min_leistung
+          - entity: sensor.netzentgelt_tarifzeitfenster
+          - type: attribute
+            entity: sensor.netzentgelt_tarifzeitfenster
+            attribute: window_end
+            name: Fenster endet
+            format: time
+
+      - type: entities
+        title: Dieser Monat
+        entities:
+          - entity: sensor.netzentgelt_monatsspitze
+          - type: attribute
+            entity: sensor.netzentgelt_monatsspitze
+            attribute: peak_quarter_start
+            name: Spitze erreicht
+            format: datetime
+          - type: attribute
+            entity: sensor.netzentgelt_monatsspitze
+            attribute: invalid_quarters_month
+            name: Ungültige Viertelstunden
+          - entity: sensor.netzentgelt_verrechnete_leistung
+          - entity: sensor.netzentgelt_leistungspreis_monat_geschatzt
+
+      - type: history-graph
+        title: 15-Min-Leistung und Prognose (24 h)
+        hours_to_show: 24
+        entities:
+          - entity: sensor.netzentgelt_15_min_leistung
+          - entity: sensor.netzentgelt_prognose_viertelstunde
+
+      - type: statistics-graph
+        title: Monatsspitze (Tagesmaximum)
+        chart_type: line
+        period: day
+        days_to_show: 60
+        stat_types:
+          - max
+        entities:
+          - sensor.netzentgelt_monatsspitze
+
+      - type: markdown
+        title: Hinweis
+        content: >-
+          Näherung nach dem **Entwurf** der SNE-G-V. Preise sind Richtwerte,
+          maßgeblich ist der Zähler des Netzbetreibers.
+
+# Optional mit der HACS-Karte "apexcharts-card" — Balken je Viertelstunde:
+#
+#      - type: custom:apexcharts-card
+#        header:
+#          show: true
+#          title: 15-Min-Leistung (heute)
+#        graph_span: 24h
+#        span:
+#          start: day
+#        yaxis:
+#          - min: 0
+#        series:
+#          - entity: sensor.netzentgelt_15_min_leistung
+#            type: column
+#            group_by:
+#              func: last
+#              duration: 15min
+#          - entity: sensor.netzentgelt_monatsspitze
+#            type: line
+#            curve: stepline

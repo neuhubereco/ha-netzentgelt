@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Idee: vier Viertelstunden einer Stunde; eine reißt die Grenze, nur der Teil darüber ist rot (= kostet). -->
+  <!-- Raster 256: Balken 44 breit, Abstand 20, Boden y=248; Grenze 10 hoch bei y=92–102; Schnittfuge 8 -->
+  <g fill="#1E2328">
+    <rect x="10"  y="140" width="44" height="108"/>
+    <rect x="74"  y="118" width="44" height="130"/>
+    <rect x="138" y="110" width="44" height="138"/>
+    <rect x="202" y="150" width="44" height="98"/>
+    <rect x="0"   y="92"  width="256" height="10"/>
+  </g>
+  <rect x="138" y="8" width="44" height="76" fill="#C8102E"/>
+</svg>

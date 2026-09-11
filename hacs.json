@@ -1,0 +1,6 @@
+{
+  "name": "Netzentgelt AT (Leistungspreis)",
+  "render_readme": true,
+  "homeassistant": "2026.3.0",
+  "country": "AT"
+}

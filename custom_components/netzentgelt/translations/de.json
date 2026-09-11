@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Netzentgelt AT (Leistungspreis)",
+        "description": "Wähle den Energiezähler für den Netzbezug (kWh, total/total_increasing). Ein Live-Leistungssensor für den Netzbezug (W/kW) ist optional und verbessert die Prognose. Verordnung im Entwurf (SNE-G-V), Preise sind Richtwerte — maßgeblich ist der Zähler des Netzbetreibers.",
+        "data": {
+          "name": "Name",
+          "energy_entity": "Energie Netzbezug",
+          "power_entity": "Leistung Netzbezug (optional)"
+        },
+        "data_description": {
+          "energy_entity": "Kumulierter Zählerstand des Netzbezugs in Wh, kWh oder MWh.",
+          "power_entity": "Aktueller Netzbezug in W oder kW; negative Werte (Einspeisung) zählen als 0."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity nicht gefunden.",
+      "invalid_energy_unit": "Der Energiesensor muss Wh, kWh oder MWh liefern.",
+      "invalid_state_class": "Der Energiesensor braucht state_class total oder total_increasing.",
+      "invalid_power_unit": "Der Leistungssensor muss W oder kW liefern."
+    },
+    "abort": {
+      "already_configured": "Dieser Energiesensor ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Schwellwerte und Preise",
+        "description": "Die Standardpreise sind Richtwerte (nicht amtlich); die Tarifverordnung steht noch aus. Arbeitspreise 0 bedeuten „nicht gesetzt“.",
+        "data": {
+          "target_kw": "Ziel-Leistung",
+          "tier_limit_kw": "Staffelgrenze",
+          "agreed_kw": "Vereinbarte Leistung",
+          "minimum_kw": "Mindestleistung",
+          "price_tier1": "Leistungspreis Stufe 1",
+          "price_tier2": "Leistungspreis Stufe 2",
+          "price_standard": "Arbeitspreis Standard",
+          "price_snap": "Arbeitspreis SNAP (Sommer mittags)",
+          "price_winap": "Arbeitspreis WiNAP (Winter nachts)",
+          "plausibility_kw": "Plausibilitätsgrenze",
+          "hysteresis_kw": "Hysterese"
+        },
+        "data_description": {
+          "target_kw": "Peak-Shaving-Ziel für den 15-Minuten-Mittelwert.",
+          "tier_limit_kw": "Bis einschließlich dieses Werts gilt Stufe 1, darüber Stufe 2 (Netzebene 7: 10 kW).",
+          "agreed_kw": "Vertraglich vereinbarte netzwirksame Leistung; Bestandsanschlüsse gelten als 10 kW.",
+          "minimum_kw": "Mindestens so viel wird verrechnet; zusätzlich mindestens 20 % der vereinbarten Leistung.",
+          "plausibility_kw": "15-Minuten-Mittelwerte darüber gelten als Messfehler.",
+          "hysteresis_kw": "„Spitze droht“ geht erst aus, wenn die Prognose um diesen Wert unter dem Ziel liegt."
+        }
+      }
+    },
+    "error": {
+      "hysteresis_too_large": "Die Hysterese muss kleiner als die Ziel-Leistung sein.",
+      "target_above_plausibility": "Die Ziel-Leistung darf die Plausibilitätsgrenze nicht übersteigen."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "quarter_power": {
+        "name": "15-Min-Leistung"
+      },
+      "forecast": {
+        "name": "Prognose Viertelstunde"
+      },
+      "month_peak": {
+        "name": "Monatsspitze"
+      },
+      "billed_power": {
+        "name": "Verrechnete Leistung"
+      },
+      "capacity_cost_month": {
+        "name": "Leistungspreis Monat (geschätzt)"
+      },
+      "headroom": {
+        "name": "Spielraum"
+      },
+      "tariff_window": {
+        "name": "Tarifzeitfenster",
+        "state": {
+          "snap": "SNAP (Sommer mittags)",
+          "winap": "WiNAP (Winter nachts)",
+          "standard": "Standard"
+        }
+      }
+    },
+    "binary_sensor": {
+      "peak_imminent": {
+        "name": "Spitze droht"
+      }
+    }
+  }
+}

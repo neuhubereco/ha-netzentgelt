@@ -1,0 +1,96 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Grid capacity charge Austria",
+        "description": "Select the grid import energy meter (kWh, total/total_increasing). A live grid import power sensor (W/kW) is optional and improves the forecast. Draft regulation (SNE-G-V), prices are indicative only — the network operator's meter is authoritative.",
+        "data": {
+          "name": "Name",
+          "energy_entity": "Grid import energy",
+          "power_entity": "Grid import power (optional)"
+        },
+        "data_description": {
+          "energy_entity": "Cumulative meter reading of grid import in Wh, kWh or MWh.",
+          "power_entity": "Current grid import in W or kW; negative values (export) count as 0."
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found.",
+      "invalid_energy_unit": "The energy sensor must use Wh, kWh or MWh.",
+      "invalid_state_class": "The energy sensor must have state_class total or total_increasing.",
+      "invalid_power_unit": "The power sensor must use W or kW."
+    },
+    "abort": {
+      "already_configured": "This energy sensor is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Thresholds and prices",
+        "description": "Default prices are indicative values (not official); the tariff regulation is still pending. Energy prices of 0 mean 'not set'.",
+        "data": {
+          "target_kw": "Target power",
+          "tier_limit_kw": "Tier limit",
+          "agreed_kw": "Agreed capacity",
+          "minimum_kw": "Minimum billed power",
+          "price_tier1": "Capacity price tier 1",
+          "price_tier2": "Capacity price tier 2",
+          "price_standard": "Energy price standard",
+          "price_snap": "Energy price SNAP (summer midday)",
+          "price_winap": "Energy price WiNAP (winter night)",
+          "plausibility_kw": "Plausibility limit",
+          "hysteresis_kw": "Hysteresis"
+        },
+        "data_description": {
+          "target_kw": "Peak-shaving target for the 15-minute average.",
+          "tier_limit_kw": "Up to and including this value tier 1 applies, above it tier 2 (grid level 7: 10 kW).",
+          "agreed_kw": "Contractually agreed grid capacity; existing connections count as 10 kW.",
+          "minimum_kw": "At least this much is billed; also at least 20 % of the agreed capacity.",
+          "plausibility_kw": "15-minute averages above this value are treated as measurement errors.",
+          "hysteresis_kw": "'Peak imminent' switches off only when the forecast falls this far below the target."
+        }
+      }
+    },
+    "error": {
+      "hysteresis_too_large": "Hysteresis must be smaller than the target power.",
+      "target_above_plausibility": "Target power must not exceed the plausibility limit."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "quarter_power": {
+        "name": "15-minute power"
+      },
+      "forecast": {
+        "name": "15-minute forecast"
+      },
+      "month_peak": {
+        "name": "Monthly peak"
+      },
+      "billed_power": {
+        "name": "Billed power"
+      },
+      "capacity_cost_month": {
+        "name": "Capacity charge month (estimate)"
+      },
+      "headroom": {
+        "name": "Headroom"
+      },
+      "tariff_window": {
+        "name": "Tariff window",
+        "state": {
+          "snap": "SNAP (summer midday)",
+          "winap": "WiNAP (winter night)",
+          "standard": "Standard"
+        }
+      }
+    },
+    "binary_sensor": {
+      "peak_imminent": {
+        "name": "Peak imminent"
+      }
+    }
+  }
+}
