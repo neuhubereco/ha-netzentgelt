@@ -1,6 +1,6 @@
 [project]
 name = "ha-netzentgelt"
-version = "0.1.0"
+version = "0.2.0"
 description = "Home-Assistant-Integration: Netzentgelt AT (Leistungspreis, 15-Minuten-Spitze, SNAP/WiNAP)"
 requires-python = ">=3.13"
 license = "MIT"

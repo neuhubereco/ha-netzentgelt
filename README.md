@@ -5,7 +5,9 @@
 Custom Integration für den geplanten **Leistungspreis** im österreichischen Netznutzungsentgelt:
 misst die 15-Minuten-Bezugsleistung wie der Netzbetreiber, führt die Monatsspitze, schätzt den
 Leistungspreis und liefert mit **Prognose** und **Spielraum** die Grundlage für Peak-Shaving
-(z. B. Wallbox drosseln).
+(z. B. Wallbox drosseln). Ab v0.2: Ziel-Leistung per Schieberegler, Schalter „Peak-Shaving
+aktiv“, Lastprofil (wann entstehen die Spitzen?), 36 Monate Verlauf mit Kosten, Import des
+Portal-Exports deines Netzbetreibers, Blueprints und ein Grafik-Dashboard.
 
 > **⚠️ Verordnung im Entwurf, Preise sind Richtwerte.** Grundlage ist der *Entwurf* der
 > Systemnutzungsentgelte-Grundsatzverordnung (SNE-G-V) der E-Control (Begutachtung
@@ -37,7 +39,23 @@ Monat — genau hier setzt Peak-Shaving an.
 
 <img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png" alt="Geräteseite der Integration in Home Assistant mit allen Sensoren" width="800">
 
-*Geräteseite nach der Einrichtung: acht Entities, mit eigenem Icon (HA ≥ 2026.3).*
+*Geräteseite nach der Einrichtung (Screenshot aus v0.1, mit eigenem Icon ab HA 2026.3). Ab v0.2
+kommen Einstellungen, der Schalter „Peak-Shaving aktiv“ und der Sensor „Lastprofil“ dazu.*
+
+## Was die Integration ersetzt
+
+Wer Peak-Shaving bisher mit einem YAML-Paket (Helfer, Template-Sensoren, eigene Automationen)
+gebaut hat, braucht davon nichts mehr:
+
+| Bisher im YAML-Paket | Mit der Integration |
+|---|---|
+| `input_number` für die kW-Grenze im Dashboard | `number.netzentgelt_ziel_leistung` — Schieberegler 2–30 kW, wirkt sofort, ohne Neuladen |
+| `input_boolean` „Peak-Shaving an/aus“ | `switch.netzentgelt_peak_shaving_aktiv` — Freigabe für Automationen, übersteht Neustarts |
+| Template-Sensoren für Viertelstunde und Monatsspitze | 15-Min-Leistung und Monatsspitze mit Interpolation an der Grenze und Ungültig-Erkennung bei Messlücken |
+| Monatsspitze nur für den laufenden Monat | Verlauf über 36 Monate mit verrechneter Leistung, Leistungspreis und Herkunft (gemessen/importiert) |
+| Staffelgrenze, Preise, Hysterese fest im YAML | Einstellungs-Entities und Options-Dialog (eine Quelle, beide zeigen dasselbe) |
+| eigene Automationen für Wallbox, Lastabwurf, Push | drei Blueprints zum Importieren (siehe unten) |
+| Diagramme aus der Recorder-Historie | Sensor „Lastprofil“ (heute, gestern, Monatsprofil) und fertiges Grafik-Dashboard |
 
 ## Was du brauchst
 
@@ -47,10 +65,13 @@ Monat — genau hier setzt Peak-Shaving an.
    20 Minuten werden überbrückt). Woher der kommen kann, steht im nächsten Abschnitt.
 3. *Optional:* einen Sensor für die aktuelle Bezugsleistung (W/kW) — macht Prognose und
    Spielraum reaktionsschneller.
-4. *Für automatisches Peak-Shaving:* eine eigene Automation oder dein Lademanagement. Die
-   Integration **misst, rechnet und warnt nur, sie schaltet nichts** (siehe Beispiel unten).
-   Wer [evcc](https://evcc.io) nutzt, kann den Netzbezug zusätzlich direkt über einen
-   `circuit` mit `maxPower` begrenzen (z. B. 9500 W bei einer 10-kW-Grenze).
+4. *Für automatisches Peak-Shaving:* einen der Blueprints, eine eigene Automation oder dein
+   Lademanagement. Die Integration **misst, rechnet und warnt nur, sie schaltet nichts** (siehe
+   „Peak-Shaving mit Blueprints“). Wer [evcc](https://evcc.io) nutzt, kann den Netzbezug
+   zusätzlich direkt über einen `circuit` mit `maxPower` begrenzen (z. B. 9500 W bei einer
+   10-kW-Grenze).
+5. *Für die Grafiken:* die HACS-Karte [apexcharts-card](https://github.com/RomRider/apexcharts-card)
+   (nur für `examples/dashboard-apexcharts.yaml`).
 
 ## Smart Meter und Messdaten
 
@@ -82,7 +103,8 @@ bei unserem Test lag ein Fronius Smart Meter rund 0,5 % unter dem Netzzähler (s
 - **Unterzähler** einzelner Geräte (Wallbox, Wärmepumpe) — die Spitze entsteht am Hausanschluss.
 - **Portaldaten des Netzbetreibers:** Die Viertelstundenwerte im Kundenportal kommen erst am
   Folgetag — für die Live-Steuerung zu spät, aber ideal zum Nachprüfen: Portal-Export und eigene
-  Zählerstände mit `tools/replay.py` vergleichen (siehe „Entwicklung“).
+  Zählerstände mit `tools/replay.py` vergleichen (siehe „Entwicklung“), und zum Nachtragen der
+  Monate vor der Installation (siehe „Lastgang importieren“).
 
 **Viertelstundenwerte beim Netzbetreiber.** Seit dem ElWG (in Kraft seit 24.12.2025) erfassen
 die Netzbetreiber standardmäßig Viertelstundenwerte; die Umstellung der Zähler läuft 2026
@@ -127,7 +149,10 @@ Mindestversion: Home Assistant 2026.3.
 
 Mehrere Einträge (z. B. mehrere Zählpunkte) sind möglich — je Energiesensor einer.
 
-**Optionen** (Zahnrad am Eintrag; Änderung lädt die Integration neu)
+**Optionen** (Zahnrad am Eintrag oder direkt über die Einstellungs-Entities, siehe „Entities“).
+Wert-Änderungen (Ziel, Staffel, vereinbarte Leistung, Mindestleistung, Preise, Hysterese) werden
+**sofort übernommen, ohne die Integration neu zu laden** — die laufende Viertelstunde bleibt
+gültig. Nur eine Änderung der Plausibilitätsgrenze lädt neu.
 
 | Option | Standard | Bedeutung |
 |---|---|---|
@@ -150,16 +175,30 @@ Entity-IDs entstehen aus Gerätename und Entity-Name in der Systemsprache (Beisp
 |---|---|---|
 | 15-Min-Leistung | `sensor.netzentgelt_15_min_leistung` | Mittelwert der zuletzt abgeschlossenen **gültigen** Viertelstunde (kW). Attribute: `quarter_start/_end`, `energy_kwh`, `last_quarter_start`, `last_quarter_valid`, `last_quarter_reason`, `invalid_quarters_month` |
 | Prognose Viertelstunde | `sensor.netzentgelt_prognose_viertelstunde` | (verbraucht seit Grenze + P_jetzt × Restzeit) × 4, alle 30 s |
-| Monatsspitze | `sensor.netzentgelt_monatsspitze` | höchste gültige Viertelstunde im Kalendermonat. Attribute: `peak_quarter_start/_end`, `peak_rounded_kw`, `valid_quarters_month`, `invalid_quarters_month`, `history` (24 Monate: Monat → `peak_kw`, `peak_start`, Zähler; wird nicht in den Recorder geschrieben) |
+| Monatsspitze | `sensor.netzentgelt_monatsspitze` | höchste gültige Viertelstunde im Kalendermonat (eigene Messung und ggf. importierter Lastgang). Attribute: `peak_quarter_start/_end`, `peak_rounded_kw`, `valid_quarters_month`, `invalid_quarters_month`, `source`, `history` (bis 36 Monate: Monat → `peak_kw`, `peak_start`, `valid_quarters`, `invalid_quarters`, `imported_quarters`, `billed_kw`, `capacity_cost_eur` — mit den **aktuellen** Preiseinstellungen gerechnet —, `source` = `measured`/`imported`/`mixed`; wird nicht in den Recorder geschrieben) |
 | Verrechnete Leistung | `sensor.netzentgelt_verrechnete_leistung` | max(Monatsspitze kaufmännisch gerundet, Mindestleistung, 20 % der vereinbarten Leistung) |
 | Leistungspreis Monat (geschätzt) | `sensor.netzentgelt_leistungspreis_monat_geschatzt` | (Stufe 1 bis Staffelgrenze + Stufe 2 darüber) / 12, in € |
 | Spielraum | `sensor.netzentgelt_spielraum` | zusätzliche **konstante** Last (kW), die bis Viertelstundenende noch dazukommen darf, ohne das Ziel zu reißen; **negativ = drosseln** |
 | Tarifzeitfenster | `sensor.netzentgelt_tarifzeitfenster` | `snap` / `winap` / `standard`; Attribute `window_end`, `energy_price_ct_kwh` (falls gesetzt) |
 | Spitze droht | `binary_sensor.netzentgelt_spitze_droht` | ein, wenn Prognose > Ziel; aus erst unter Ziel − Hysterese |
+| Lastprofil | `sensor.netzentgelt_lastprofil` | Uhrzeit (HH:MM) der Viertelstunde mit der Monatsspitze. Attribute (nicht im Recorder): `today_kw`, `yesterday_kw` (je 96 Werte, Index = Viertelstunde des Tages, `null` = fehlend/ungültig), `month_max_kw`, `month_avg_kw` (höchster bzw. mittlerer Wert je Uhrzeit im laufenden Monat), `labels` (96 × `HH:MM`), `month` |
+| Peak-Shaving aktiv | `switch.netzentgelt_peak_shaving_aktiv` | Freigabe für Automationen und Blueprints (Standard: aus, Zustand übersteht Neustarts). Die Integration selbst schaltet nichts |
+| Ziel-Leistung | `number.netzentgelt_ziel_leistung` | Schieberegler 2–30 kW, Schritt 0,1 |
+| Einstellungen | `number.netzentgelt_staffelgrenze`, `…_vereinbarte_leistung`, `…_mindestleistung`, `…_leistungspreis_stufe_1`, `…_leistungspreis_stufe_2`, `…_hysterese` | Kategorie „Konfiguration“ auf der Geräteseite; dieselben Werte wie im Options-Dialog |
 
 Spielraum = ((Ziel / 4 − verbraucht_kWh) / Rest_h) − P_jetzt; die Restzeit wird auf mindestens
 30 s begrenzt. P_jetzt kommt aus dem Leistungssensor, sonst aus der Steigung der letzten
 Zählerstände (≈ 2 min), sonst aus dem Mittel der laufenden Viertelstunde (Attribut `power_source`).
+
+Einstellungs-Entities schreiben in die Optionen des Eintrags (eine einzige Quelle). Die Regeln des
+Options-Dialogs gelten auch hier: Hysterese kleiner als das Ziel, Ziel höchstens
+Plausibilitätsgrenze — sonst lehnt Home Assistant den Wert mit einer Meldung ab.
+
+**Lastprofil und Zeitumstellung:** Die Zuordnung erfolgt über die lokale Uhrzeit. Am Tag der
+Umstellung auf Winterzeit gibt es 02:00–02:59 zweimal: im Tagesprofil zählt der höhere Wert, im
+Monatsmittel gehen beide ein. Am Tag der Umstellung auf Sommerzeit bleiben 02:00–02:45 leer.
+Heute/gestern und das Monatsprofil liegen im HA-Speicher und überstehen Neustarts; beim
+Monatswechsel wird das Monatsprofil mit dem Verlauf archiviert.
 
 ## Messprinzip und Verhalten bei Messlücken
 
@@ -194,8 +233,8 @@ Das Vorbild (ein YAML-Paket) nahm an jeder Viertelstundengrenze einfach den aktu
 5. **Monatszuordnung** über den **Beginn** des Intervalls in Ortszeit (HA-Zeitzone):
    23:45–00:00 am Monatsletzten gehört zum alten Monat, 00:00–00:15 zum neuen — auch wenn die
    23:45-Viertelstunde erst nach Mitternacht fertig ausgewertet wird.
-6. Monatsspitzen und Verlauf (24 Monate) werden im HA-Speicher (`.storage/netzentgelt.<id>`)
-   abgelegt und überstehen Neustarts.
+6. Monatsspitzen, Verlauf (36 Monate) und Lastprofile werden im HA-Speicher
+   (`.storage/netzentgelt.<id>`) abgelegt und überstehen Neustarts.
 
 **WiNAP-Auslegung:** Das Fenster 22:00–04:00 reicht über Mitternacht. Die Integration ordnet eine
 Nacht dem Tag zu, an dem sie **beginnt**: WiNAP-Nächte beginnen an Tagen vom 1.10. bis 31.3.
@@ -203,11 +242,29 @@ um 22:00 und enden um 04:00 des Folgetags. Die Nacht 31.3.→1.4. ist damit bis 
 die Nacht 30.9.→1.10. ist es nicht (erste WiNAP-Nacht: 1.10. 22:00). Sollte die endgültige
 Verordnung anders abgrenzen, wird das angepasst.
 
-## Beispiel-Automation: Wallbox über den Spielraum regeln
+## Peak-Shaving mit Blueprints
 
-Generisches Beispiel — `number.wallbox_ladestrom` durch die eigene Ladestrom-Entity ersetzen und
-an Phasenzahl/Mindeststrom anpassen. **Nicht gegen eine echte Wallbox getestet; zuerst mit
-Benachrichtigungen statt Stellbefehlen ausprobieren.**
+Drei Automations-Blueprints (Ordner [`blueprints/automation/netzentgelt/`](blueprints/automation/netzentgelt/)).
+Import per Button (öffnet deine Home-Assistant-Instanz) oder unter Einstellungen → Automationen →
+Blueprints → „Blueprint importieren“ mit der Datei-URL. **Alle drei laufen nur, solange
+„Peak-Shaving aktiv“ eingeschaltet ist** (Benachrichtigungen ausgenommen). Im Testharness von
+Home Assistant ausgeführt, **nicht an einer echten Wallbox** — zuerst in der Ablaufverfolgung
+beobachten.
+
+| Blueprint | Was er tut | Import |
+|---|---|---|
+| **Wallbox am Spielraum ausrichten** (`wallbox_spielraum.yaml`) | Stellt den Ladestrom einer `number`-Entity (A) so ein, dass der Spielraum aufgebraucht, aber nicht überschritten wird: Phasen, Spannung, Min-/Höchststrom, Totband. Reicht selbst der Mindeststrom nicht, schaltet er optional einen Freigabe-Schalter der Wallbox aus und wieder ein, sobald Platz ist (spätestens nach 30 min). Beim Ausschalten von Peak-Shaving optional zurück auf Höchststrom. | [![Blueprint importieren](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Fwallbox_spielraum.yaml) |
+| **Lasten abwerfen** (`last_abwerfen.yaml`) | Schaltet gewählte Schalter/Input-Booleans aus, wenn „Spitze droht“ einschaltet, und nach dem Ende plus Wartezeit **nur die wieder ein, die er selbst ausgeschaltet hat** (optional erst zur nächsten Viertelstunde; sofort, wenn Peak-Shaving ausgeschaltet wird; spätestens nach der Höchstdauer). | [![Blueprint importieren](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Flast_abwerfen.yaml) |
+| **Benachrichtigung** (`benachrichtigung.yaml`) | Push bei „Spitze droht“ mit Prognose und Spielraum (höchstens einmal je Drosselzeit) und bei neuer Monatsspitze über der Staffelgrenze (danach erst wieder ab einer Mindeststeigerung). Aktion frei wählbar, z. B. `notify.mobile_app_mein_handy`. | [![Blueprint importieren](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Fbenachrichtigung.yaml) |
+
+Wer [evcc](https://evcc.io) nutzt, kann statt des Wallbox-Blueprints auch dort einen `circuit` mit
+`maxPower` setzen. Wärmepumpen besser nur begrenzen, nicht hart abschalten.
+
+<details>
+<summary>Eigene Automation ohne Blueprint (Minimalbeispiel Wallbox)</summary>
+
+`number.wallbox_ladestrom` durch die eigene Ladestrom-Entity ersetzen und an Phasenzahl/Mindeststrom
+anpassen.
 
 ```yaml
 automation:
@@ -238,10 +295,83 @@ automation:
           value: "{{ ziel_a }}"
 ```
 
-Reicht der Mindeststrom nicht (Spielraum bleibt negativ), muss die Automation das Laden
-pausieren — das ist wallbox-spezifisch. Wärmepumpen besser nur begrenzen, nicht hart abschalten.
+</details>
 
-Ein Beispiel-Dashboard liegt in [`examples/dashboard.yaml`](examples/dashboard.yaml).
+## Lastgang importieren (Portal-Export deines Netzbetreibers)
+
+Die Viertelstundenwerte aus dem Kundenportal des Netzbetreibers lassen sich einlesen — damit sind
+Monatsspitzen, Kosten und Lastprofil auch für die Zeit **vor** der Installation da, und die
+Langzeitstatistik der 15-Min-Leistung reicht weiter zurück.
+
+1. Im Portal den Viertelstunden-Lastgang (Bezug) als CSV exportieren.
+2. Datei ins Home-Assistant-Konfigurationsverzeichnis legen, z. B. `/config/netzentgelt/lastgang.csv`
+   (File-Editor-, Samba- oder Studio-Code-Server-Add-on). **Nicht nach `/config/www`** — dieser
+   Ordner ist ohne Anmeldung über `/local/` erreichbar.
+3. Entwicklerwerkzeuge → Aktionen → **„Lastgang importieren“** (Netzentgelt AT), Eintrag und
+   Datei wählen, ausführen. Die Antwort zeigt, was übernommen wurde. In Skripten mit
+   `response_variable`:
+
+```yaml
+action: netzentgelt.import_load_profile
+data:
+  config_entry_id: DEINE_EINTRAGS_ID   # in der UI per Auswahlliste
+  path: netzentgelt/lastgang.csv       # relativ zum Konfigurationsverzeichnis
+  timestamp_is_end: false              # true, wenn der Zeitstempel das Ende der Viertelstunde ist
+  overwrite: false                     # true: Monate mit eigener Messung durch den Import ersetzen
+  import_statistics: true              # Stundenwerte in die Langzeitstatistik der 15-Min-Leistung
+response_variable: ergebnis
+```
+
+**Dateiformat.** CSV mit `;`, `,` oder Tabulator, Kopfzeile optional, UTF-8 (auch mit BOM) oder
+Windows-1252, Dezimalkomma oder -punkt. Zeitstempel `TT.MM.JJJJ HH:MM` (Ortszeit der
+HA-Zeitzone; bei der Umstellung auf Winterzeit darf 02:00–02:45 zweimal vorkommen) oder ISO 8601.
+Wertspalte: eine Spalte **kW** wird als Leistung genommen, sonst **kWh** × 4; weitere Spalten
+(Status) werden ignoriert. Ohne Kopfzeile: zwei Zahlenspalten im Verhältnis 1 : 4 gelten als
+kWh/kW, eine einzelne Zahlenspalte als kWh (Antwortfeld `value_column_source: assumed`). Beispiel
+Netz-OÖ-Portal (Zeitstempel = Beginn):
+
+```text
+"Datum";"kWh";"kW";"Status";
+"01.01.2026 00:00";0,354;1,416;"VALID";
+```
+
+**Was passiert.**
+- Monate **ohne** eigene Messung werden übernommen (`source: imported`).
+- Monate **mit** eigener Messung: Spitze = Maximum aus beidem (`source: mixed`); mit
+  `overwrite: true` ersetzt der Import die eigene Messung. Ein erneuter Import derselben Datei
+  ändert nichts (der Import wird je Monat getrennt gespeichert und ersetzt nur den früheren Import).
+- Übersprungen: Monate älter als 36 Monate oder nach dem laufenden Monat.
+- Heute/gestern im Lastprofil: nur Viertelstunden ohne eigenen Wert werden gefüllt.
+- **Langzeitstatistik:** stündliche Mittel-/Min-/Maximalwerte als Statistik von
+  `sensor.netzentgelt_15_min_leistung` — **nur für Stunden vor der ersten vorhandenen
+  Statistik-Stunde dieses Sensors und vor seiner Anlage**, eigene Messwerte werden nie
+  überschrieben.
+
+**Antwort** (Felder): `rows`, `rows_skipped`, `duplicates`, `quarters`, `value_column`,
+`value_column_source`, `period_start`, `period_end`, `months`, `months_imported`, `months_merged`,
+`months_overwritten`, `months_skipped`, `day_slots_filled`, `statistics_hours`,
+`statistics_hours_skipped`, `statistics_until`, `statistics_note`.
+
+**Sicherheit.** Nur Administratoren dürfen die Aktion ausführen. Erlaubt sind `.csv`/`.txt` bis
+20 MB im Konfigurationsverzeichnis, ohne versteckte Ordner (z. B. `.storage`); `..` und Symlinks
+nach außen werden abgelehnt. Dateien außerhalb nur in Verzeichnissen aus
+[`allowlist_external_dirs`](https://www.home-assistant.io/integrations/homeassistant/#allowlist_external_dirs).
+
+## Dashboards
+
+- [`examples/dashboard.yaml`](examples/dashboard.yaml) — nur Standardkarten: Tacho, Ziel-Schieberegler,
+  Schalter, Monatswerte, Verlauf.
+- [`examples/dashboard-apexcharts.yaml`](examples/dashboard-apexcharts.yaml) — Grafiken mit der
+  HACS-Karte [apexcharts-card](https://github.com/RomRider/apexcharts-card) (v2.2.x):
+  **Heute** (96 Viertelstunden, grün/gelb/rot, Ziel, Staffelgrenze und Monatsspitze als Linien),
+  **Wann entstehen deine Spitzen?** (Monatsprofil Maximum/Mittel mit SNAP-/WiNAP-Bändern),
+  **Monatsspitzen** der letzten 36 Monate mit Leistungspreis, **Prognose** als Ring mit Ziel und
+  **Spielraum**. Die Farbschwellen der Karte sind feste Zahlen (für Ziel 10 kW) — Hinweise im
+  Kopf der Datei.
+
+Beide in einem Dashboard über ⋮ → „Rohkonfiguration bearbeiten“ einfügen (oder nur die Karten).
+Die Konfiguration ist gegen das Konfigurationsschema der Karte geprüft; die Darstellung selbst
+hängt von Kartenversion und Theme ab.
 
 ## Genauigkeit und Grenzen
 
@@ -281,8 +411,11 @@ uv pip install --python .venv/bin/python -r requirements_test.txt
 .venv/bin/python -m pytest -q
 ```
 
-Die Rechenlogik (`custom_components/netzentgelt/calc.py`) hat keine Home-Assistant-Abhängigkeit;
-`tests/test_calc.py` läuft auch mit reinem `pytest`.
+Die Rechenlogik (`custom_components/netzentgelt/calc.py`: Messung, Tarif, Lastprofil, Parser und
+Merge des Lastgang-Imports) hat keine Home-Assistant-Abhängigkeit; `tests/test_calc.py` und
+`tests/test_calc_profile.py` laufen auch mit reinem `pytest`. Die übrigen Tests nutzen
+pytest-homeassistant-custom-component (simulierte HA-Instanz, für den Statistik-Import mit
+Recorder auf In-Memory-SQLite; die Blueprints werden dort als Automationen ausgeführt).
 
 Eigene Daten gegen den Netzbetreiber-Lastgang prüfen:
 
@@ -291,6 +424,30 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 # zaehler.csv:  ISO-Zeitstempel,kWh   (z. B. InfluxDB-Export des Energiesensors)
 # lastgang.csv: TT.MM.JJJJ HH:MM;kWh;kW  (Portal-Export, Zeitstempel = Beginn der Viertelstunde)
 ```
+
+## Changelog
+
+### 0.2.0
+
+- **Einstellungen als Entities:** Ziel-Leistung (Schieberegler 2–30 kW), Staffelgrenze,
+  vereinbarte Leistung, Mindestleistung, Leistungspreis Stufe 1/2, Hysterese. Einzige Quelle
+  bleiben die Optionen des Eintrags; Wert-Änderungen wirken sofort **ohne Neuladen** (die laufende
+  Viertelstunde bleibt gültig). Auch der Options-Dialog lädt bei Wert-Änderungen nicht mehr neu.
+- **Schalter „Peak-Shaving aktiv“** als Freigabe für Automationen (übersteht Neustarts).
+- **Sensor „Lastprofil“:** Uhrzeit der Monatsspitze, 96 Viertelstunden heute/gestern,
+  Monatsmaximum/-mittel je Uhrzeit, zeitumstellungsfest, persistent.
+- **Monatsspitze:** Verlauf auf 36 Monate erweitert, je Monat `billed_kw`, `capacity_cost_eur`
+  (aktuelle Preise) und `source`.
+- **Aktion `netzentgelt.import_load_profile`:** Portal-Export (CSV) einlesen, in Verlauf und
+  Lastprofil übernehmen, optional Langzeitstatistik für die Zeit vor den eigenen Messwerten.
+- **Blueprints:** Wallbox am Spielraum, Lasten abwerfen, Benachrichtigung.
+- **Dashboards:** Ziel-Schieberegler und Schalter im Standard-Dashboard, neues Grafik-Dashboard
+  für apexcharts-card.
+
+### 0.1.0
+
+- Erste Version: 15-Min-Leistung mit Interpolation, Monatsspitze, verrechnete Leistung,
+  Leistungspreis-Schätzung, Prognose, Spielraum, Tarifzeitfenster, „Spitze droht“.
 
 ## Lizenz
 
@@ -315,15 +472,39 @@ capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00,
   import also works (≈ 0.5 % below the utility meter in our test). Not suitable: household
   consumption in PV homes, sub-meters, next-day portal data (use those only with `tools/replay.py`
   for validation). The integration measures and warns; throttling is up to your own automation
-  (or e.g. an evcc `circuit` with `maxPower`).
+  (or e.g. an evcc `circuit` with `maxPower`) — three blueprints are included.
 - **Install:** HACS → custom repository `https://github.com/neuhubereco/ha-netzentgelt`
   (category *Integration*), restart, add “Netzentgelt AT”.
 - **Configure:** grid import energy sensor (Wh/kWh/MWh, `total`/`total_increasing`), optional grid
-  import power sensor (W/kW). Thresholds and prices in the options; default prices are indicative
-  only.
-- **Entities:** 15-minute power, forecast, monthly peak (+ 24-month history), billed power,
+  import power sensor (W/kW). Thresholds and prices in the options **or directly via the settings
+  entities** (number platform, same values); value changes apply live without reloading the
+  integration (the running quarter stays valid). Default prices are indicative only.
+- **Entities:** 15-minute power, forecast, monthly peak (+ 36-month history with `billed_kw`,
+  `capacity_cost_eur` at current prices and `source` measured/imported/mixed), billed power,
   estimated monthly capacity charge, headroom (negative = reduce load), tariff window, binary
-  “peak imminent”.
+  “peak imminent”, **load profile** (state = time of the monthly peak; attributes: 96 quarter-hour
+  values for today/yesterday, monthly maximum/average per time of day, DST-safe), **switch
+  “peak shaving active”** (master enable for automations, restored after restart), **target power
+  slider** (2–30 kW) and settings for tier limit, agreed capacity, minimum, prices, hysteresis.
+- **What it replaces:** the usual YAML package (input_number for the kW limit, input_boolean for
+  on/off, template sensors, own automations, history-based charts).
+- **Import your grid operator's portal export:** action `netzentgelt.import_load_profile`
+  (admin only, `config_entry_id`, `path` relative to the config directory, `timestamp_is_end`,
+  `overwrite`, `import_statistics`; returns a summary). CSV with `;`/`,`/tab, optional header, BOM,
+  decimal comma, `DD.MM.YYYY HH:MM` local time or ISO 8601; a `kW` column is used as power, else
+  `kWh` × 4. Months without own measurement are imported, months with own measurement are merged
+  (peak = maximum) unless `overwrite`. Hourly mean/min/max are imported as long-term statistics of
+  the 15-minute power sensor, **only for hours before its first existing statistic** and before the
+  entity was created. Hidden folders, `..` and symlinks leaving the config directory are rejected;
+  paths outside only via `allowlist_external_dirs`. Do not put the file into `/config/www`.
+- **Blueprints:** [wallbox follows headroom](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Fwallbox_spielraum.yaml),
+  [load shedding](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Flast_abwerfen.yaml) (restores only the loads it switched off),
+  [notifications](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Fbenachrichtigung.yaml) (throttled). Executed in the Home Assistant test
+  harness, not against a real wallbox.
+- **Dashboards:** `examples/dashboard.yaml` (core cards, slider, switch) and
+  `examples/dashboard-apexcharts.yaml` (apexcharts-card 2.2.x: today's 96 quarter hours, monthly
+  profile with SNAP/WiNAP bands, 36 monthly peaks with cost, forecast ring, headroom). The config is
+  checked against the card's config schema; colour thresholds are fixed numbers (target 10 kW).
 - **Measurement:** meter readings are linearly interpolated at each quarter-hour boundary; if the
   source was unavailable, the meter decreased/jumped, the samples around a boundary are more than
   20 minutes apart (unless the meter rose by ≤ 0.01 kWh), or the power is implausible, the quarter
