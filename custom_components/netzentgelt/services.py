@@ -290,7 +290,6 @@ def _existing_statistics(
     """
     from homeassistant.components.recorder.statistics import (
         get_metadata,
-        statistic_during_period,
         statistics_during_period,
     )
 
@@ -298,8 +297,14 @@ def _existing_statistics(
     if statistic_id not in metadata:
         return None, None
     unit = metadata[statistic_id][1]["unit_of_measurement"]
-    before = statistic_during_period(hass, None, start, statistic_id, {"max"}, None)
-    if before.get("max") is not None:
+    # Nur die Langzeit-Tabelle fragen: ``statistic_during_period`` mit offenem
+    # Beginn bezieht die 5-Minuten-Statistik mit ein und meldete im Live-Betrieb
+    # (HA 2026.9) auch dann Werte „vor start“, wenn es keine gab.
+    # Stundenwerte statt "month": Monats-Buckets reichen über ``start`` hinaus.
+    before = statistics_during_period(
+        hass, datetime(1970, 1, 1, tzinfo=UTC), start, {statistic_id}, "hour", None, {"mean"}
+    )
+    if before.get(statistic_id):
         return start, unit
     rows = statistics_during_period(hass, start, end, {statistic_id}, "hour", None, {"mean"})
     series = rows.get(statistic_id) or []
