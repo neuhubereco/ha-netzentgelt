@@ -150,6 +150,24 @@ views:
                     day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
                     kw,
                   ]);
+              - entity: sensor.netzentgelt_lastprofil
+                name: Gestern
+                type: area
+                curve: stepline
+                stroke_width: 1
+                opacity: 0.18
+                color: "#90a4ae"
+                unit: kW
+                float_precision: 2
+                show:
+                  legend_value: false
+                data_generator: |
+                  const values = entity.attributes.yesterday_kw || [];
+                  const day = moment().startOf('day');
+                  return values.map((kw, slot) => [
+                    day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
+                    kw,
+                  ]);
               - entity: number.netzentgelt_ziel_leistung
                 name: Ziel
                 type: line
@@ -360,6 +378,142 @@ views:
                   return Object.keys(history).sort().map((month) => [
                     moment(month + '-15', 'YYYY-MM-DD').valueOf(),
                     history[month].capacity_cost_eur,
+                  ]);
+            grid_options:
+              columns: full
+
+      # --- (vi) Tages-Spitzen: höchste Viertelstunde je Tag (Langzeitstatistik) ---
+      - type: grid
+        column_span: 3
+        cards:
+          # --- Tages-Spitzen: höchste Viertelstunde je Tag (aus der Langzeitstatistik) ---
+          - type: custom:apexcharts-card
+            graph_span: 60d
+            span:
+              end: day
+            header:
+              show: true
+              title: Tages-Spitzen (60 Tage)
+              show_states: true
+              colorize_states: true
+            experimental:
+              color_threshold: true
+            apex_config:
+              chart:
+                height: 300
+              tooltip:
+                x:
+                  format: dd. MMM
+            yaxis:
+              - min: 0
+                decimals: 1
+            series:
+              - entity: sensor.netzentgelt_15_min_leistung
+                name: Höchste Viertelstunde
+                type: column
+                unit: kW
+                float_precision: 2
+                statistics:
+                  type: max
+                  period: day
+                color_threshold:
+                  - value: 0
+                    color: "#43a047"
+                  - value: 9
+                    color: "#fbc02d"
+                  - value: 10
+                    color: "#e53935"
+              - entity: number.netzentgelt_ziel_leistung
+                name: Ziel
+                type: line
+                curve: stepline
+                stroke_width: 2
+                stroke_dash: 6
+                color: "#1e88e5"
+                unit: kW
+                float_precision: 1
+                show:
+                  legend_value: false
+                data_generator: |
+                  const kw = Number(entity.state);
+                  return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
+            grid_options:
+              columns: full
+      - type: grid
+        column_span: 2
+        cards:
+          # --- Jahreswerte: höchste Viertelstunde je Jahr + Leistungspreis (Summe der Monate) ---
+          - type: custom:apexcharts-card
+            graph_span: 1096d
+            span:
+              end: year
+            header:
+              show: true
+              title: Jahreswerte (laufendes Jahr anteilig)
+            apex_config:
+              chart:
+                height: 300
+              tooltip:
+                x:
+                  format: yyyy
+            yaxis:
+              - id: kw
+                min: 0
+                decimals: 1
+                apex_config:
+                  title:
+                    text: kW
+              - id: eur
+                opposite: true
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: € / Jahr
+            series:
+              - entity: sensor.netzentgelt_monatsspitze
+                name: Höchste Viertelstunde
+                type: column
+                yaxis_id: kw
+                unit: kW
+                float_precision: 2
+                color: "#e53935"
+                show:
+                  in_header: false
+                  legend_value: false
+                data_generator: |
+                  const history = entity.attributes.history || {};
+                  const years = {};
+                  Object.keys(history).forEach((month) => {
+                    const year = month.slice(0, 4);
+                    const peak = history[month].peak_kw;
+                    if (peak == null) return;
+                    years[year] = Math.max(years[year] || 0, peak);
+                  });
+                  return Object.keys(years).sort().map((year) => [
+                    moment(year + '-07-01').valueOf(), years[year],
+                  ]);
+              - entity: sensor.netzentgelt_monatsspitze
+                name: Leistungspreis (Summe der Monate)
+                type: column
+                yaxis_id: eur
+                unit: €
+                float_precision: 0
+                color: "#8e24aa"
+                show:
+                  in_header: false
+                  legend_value: false
+                data_generator: |
+                  const history = entity.attributes.history || {};
+                  const years = {};
+                  Object.keys(history).forEach((month) => {
+                    const year = month.slice(0, 4);
+                    const cost = history[month].capacity_cost_eur;
+                    if (cost == null) return;
+                    years[year] = (years[year] || 0) + cost;
+                  });
+                  return Object.keys(years).sort().map((year) => [
+                    moment(year + '-07-01').valueOf(), Math.round(years[year]),
                   ]);
             grid_options:
               columns: full

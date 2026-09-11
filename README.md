@@ -46,6 +46,13 @@ vor der Installation stammen aus dem importierten Portal-Export des Netzbetreibe
 (`netzentgelt.import_load_profile`). Ein Dashboard nur mit Core-Karten liegt in
 [`examples/dashboard.yaml`](examples/dashboard.yaml).*
 
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/tagesspitzen.png" alt="Säulen je Tag der letzten 60 Tage: höchste Viertelstunde, grün unter dem Ziel, rot darüber, mit Ziel-Linie" width="900">
+
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/jahreswerte.png" alt="Jahreswerte: höchste Viertelstunde je Jahr und aufsummierter geschätzter Leistungspreis" width="700">
+
+*Tages-Spitzen aus der Langzeitstatistik und Jahreswerte aus dem Monatsverlauf — beide ebenfalls
+im Grafik-Dashboard. Das laufende Jahr zählt nur anteilig.*
+
 <img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png" alt="Geräteseite der Integration: Steuerung mit Schalter Peak-Shaving aktiv und Ziel-Schieberegler, alle Sensoren, Konfiguration" width="650">
 
 *Geräteseite: Schalter und Ziel-Schieberegler unter „Steuerung“, die übrigen Einstellungen unter
@@ -469,7 +476,9 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
   Lastprofil übernehmen, optional Langzeitstatistik für die Zeit vor den eigenen Messwerten.
 - **Blueprints:** Wallbox am Spielraum, Lasten abwerfen, Benachrichtigung.
 - **Dashboards:** Ziel-Schieberegler und Schalter im Standard-Dashboard, neues Grafik-Dashboard
-  für apexcharts-card.
+  für apexcharts-card: heutige Viertelstunden (mit „Gestern“ zum Vergleich), Monatsprofil mit
+  SNAP/WiNAP-Fenstern, Monatsspitzen mit Kostenlinie, Tages-Spitzen der letzten 60 Tage und
+  Jahreswerte.
 
 Korrekturen aus dem Review vor der Veröffentlichung:
 
