@@ -469,6 +469,84 @@ def test_parse_timestamp_is_end_including_2400() -> None:
     }
 
 
+def test_parse_without_header_first_row_without_value() -> None:
+    """Befund 7: erste Datenzeile ohne Wert → Wertspalte aus der nächsten Zeile mit Zahl."""
+    text = "01.06.2026 12:00;;\n01.06.2026 12:15;0,25;1,0\n01.06.2026 12:30;0,5;2,0\n"
+    profile = calc.parse_load_profile(text, VIENNA)
+    assert (profile.value_column, profile.value_column_source) == ("kW", "detected")
+    assert profile.rows == 2 and profile.rows_skipped == 1
+    assert profile.quarters[utc(2026, 6, 1, 10, 30)] == pytest.approx(2.0)
+
+
+def test_parse_descending_file_keeps_dst_fall_back_order() -> None:
+    """Befund 8: neueste Zeile zuerst — die doppelte Stunde darf nicht vertauscht werden."""
+    rows = [  # (Uhrzeit, kW) in Zeitfolge: 02:00 MESZ = 3 kW, 02:00 MEZ = 5 kW
+        ("01:45", 1.0),
+        ("02:00", 3.0),
+        ("02:15", 3.5),
+        ("02:00", 5.0),
+        ("02:15", 5.5),
+        ("03:00", 1.0),
+    ]
+    ascending = "Datum;kW\n" + "".join(f"25.10.2026 {c};{kw}\n" for c, kw in rows)
+    descending = "Datum;kW\n" + "".join(f"25.10.2026 {c};{kw}\n" for c, kw in reversed(rows))
+    expected = {
+        utc(2026, 10, 24, 23, 45): 1.0,
+        utc(2026, 10, 25, 0, 0): 3.0,  # 02:00 MESZ
+        utc(2026, 10, 25, 0, 15): 3.5,
+        utc(2026, 10, 25, 1, 0): 5.0,  # 02:00 MEZ
+        utc(2026, 10, 25, 1, 15): 5.5,
+        utc(2026, 10, 25, 2, 0): 1.0,
+    }
+    assert calc.parse_load_profile(ascending, VIENNA).quarters == expected
+    assert calc.parse_load_profile(descending, VIENNA).quarters == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Zeit,kW\n2026-08-01 00:00,0,5\n2026-08-01 00:15,1,25\n",  # mehr Zellen als Kopfzeile
+        "2026-08-01 00:00,0,5\n2026-08-01 00:15,1\n",  # ungleich viele Zellen
+        "2026-08-01 00:00,0,5\n2026-08-01 00:15,1,25\n",  # nur zerlegte Dezimalzahlen
+    ],
+)
+def test_parse_comma_file_with_unquoted_decimal_commas_is_rejected(text: str) -> None:
+    """Befund 9: ``,`` als Trenn- und Dezimalzeichen → klarer Fehler statt falscher Werte."""
+    with pytest.raises(calc.LoadProfileError) as err:
+        calc.parse_load_profile(text, VIENNA)
+    assert err.value.reason == "decimal_comma_ambiguous"
+
+
+def test_parse_comma_file_with_quoted_decimal_commas_or_points_is_fine() -> None:
+    quoted = 'Zeit,kW\n2026-08-01 00:00,"0,5"\n2026-08-01 00:15,"1,25",\n'
+    assert calc.parse_load_profile(quoted, VIENNA).quarters[utc(2026, 7, 31, 22, 15)] == pytest.approx(1.25)
+    points = "2026-08-01 00:00,0.125,0.5\n2026-08-01 00:15,0.25,1.0\n"
+    profile = calc.parse_load_profile(points, VIENNA)
+    assert profile.value_column_source == "detected"
+    assert profile.quarters[utc(2026, 7, 31, 22, 15)] == pytest.approx(1.0)
+
+
+def test_parse_separate_date_and_time_columns() -> None:
+    """(e) ``Datum;Zeit von;Zeit bis;kWh`` — Beginn aus „Zeit von“, auch 24:00 als Ende."""
+    text = (
+        "Datum;Zeit von;Zeit bis;kWh\n"
+        "01.08.2026;00:00;00:15;0,125\n"
+        "01.08.2026;23:45;24:00;0,5\n"
+        "2026-08-02;00:00:00;00:15:00;1,0\n"
+    )
+    profile = calc.parse_load_profile(text, VIENNA)
+    assert profile.value_column == "kWh" and profile.rows == 3
+    assert profile.quarters == {
+        utc(2026, 7, 31, 22, 0): pytest.approx(0.5),
+        utc(2026, 8, 1, 21, 45): pytest.approx(2.0),
+        utc(2026, 8, 1, 22, 0): pytest.approx(4.0),
+    }
+    # ohne Kopfzeile, Zeitstempel = Ende in eigener Spalte
+    ends = "01.08.2026;00:15;0,25;1,0\n01.08.2026;24:00;0,5;2,0\n"
+    profile = calc.parse_load_profile(ends, VIENNA, timestamp_is_end=True)
+    assert profile.quarters == {utc(2026, 7, 31, 22, 0): 1.0, utc(2026, 8, 1, 21, 45): 2.0}
+
+
 @pytest.mark.parametrize(
     ("text", "reason"),
     [

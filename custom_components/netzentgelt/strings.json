@@ -158,6 +158,9 @@
     "no_value_column": {
       "message": "\"{path}\": no value column (kW or kWh) found."
     },
+    "decimal_comma_ambiguous": {
+      "message": "\"{path}\": comma-separated file with decimal commas — the values are ambiguous. Export with ';' as separator or put the values in quotes."
+    },
     "no_valid_rows": {
       "message": "\"{path}\": no valid quarter-hour values found."
     }

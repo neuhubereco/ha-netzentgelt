@@ -324,15 +324,24 @@ response_variable: ergebnis
 
 **Dateiformat.** CSV mit `;`, `,` oder Tabulator, Kopfzeile optional, UTF-8 (auch mit BOM) oder
 Windows-1252, Dezimalkomma oder -punkt. Zeitstempel `TT.MM.JJJJ HH:MM` (Ortszeit der
-HA-Zeitzone; bei der Umstellung auf Winterzeit darf 02:00–02:45 zweimal vorkommen) oder ISO 8601.
+HA-Zeitzone; bei der Umstellung auf Winterzeit darf 02:00–02:45 zweimal vorkommen) oder ISO 8601
+— in einer Spalte oder getrennt als **Datum + Uhrzeit** (`Datum;Zeit von;Zeit bis;kWh`: es gilt
+die erste Uhrzeit nach dem Datum). Auf- oder absteigend sortiert (neueste Zeile zuerst geht auch).
 Wertspalte: eine Spalte **kW** wird als Leistung genommen, sonst **kWh** × 4; weitere Spalten
 (Status) werden ignoriert. Ohne Kopfzeile: zwei Zahlenspalten im Verhältnis 1 : 4 gelten als
-kWh/kW, eine einzelne Zahlenspalte als kWh (Antwortfeld `value_column_source: assumed`). Beispiel
-Netz-OÖ-Portal (Zeitstempel = Beginn):
+kWh/kW, eine einzelne Zahlenspalte als kWh (Antwortfeld `value_column_source: assumed`).
+**Komma als Trennzeichen und Dezimalkomma zugleich** (`2026-08-01 00:00,0,5`) ist nicht eindeutig
+und wird mit einer Fehlermeldung abgelehnt — dann mit `;` exportieren oder die Werte in
+Anführungszeichen setzen. Beispiele (Zeitstempel = Beginn):
 
 ```text
 "Datum";"kWh";"kW";"Status";
 "01.01.2026 00:00";0,354;1,416;"VALID";
+```
+
+```text
+Datum;Zeit von;Zeit bis;kWh
+01.01.2026;00:00;00:15;0,354
 ```
 
 **Was passiert.**
@@ -500,8 +509,9 @@ capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00,
 - **Import your grid operator's portal export:** action `netzentgelt.import_load_profile`
   (admin only, `config_entry_id`, `path` relative to the config directory, `timestamp_is_end`,
   `overwrite`, `import_statistics`; returns a summary). CSV with `;`/`,`/tab, optional header, BOM,
-  decimal comma, `DD.MM.YYYY HH:MM` local time or ISO 8601; a `kW` column is used as power, else
-  `kWh` × 4. Months without own measurement are imported, months with own measurement are merged
+  decimal comma, `DD.MM.YYYY HH:MM` local time or ISO 8601 (also as separate date + time columns, e.g.
+  `Datum;Zeit von;Zeit bis;kWh`; ascending or descending); a `kW` column is used as power, else
+  `kWh` × 4. Comma-separated files with unquoted decimal commas are rejected as ambiguous. Months without own measurement are imported, months with own measurement are merged
   (peak = maximum); `overwrite` replaces the own measurement only if it lies entirely within the
   imported period. Several files complement each other (imported quarter hours are united per
   month, newer values win). Hourly mean/min/max are imported as long-term statistics of

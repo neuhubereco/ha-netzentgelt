@@ -25,6 +25,7 @@ import csv
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
+from itertools import pairwise
 import math
 import re
 from typing import Any
@@ -1324,6 +1325,10 @@ _DE_TIMESTAMP = re.compile(r"^(\d{1,2})\.(\d{1,2})\.(\d{4})[ T]+(\d{1,2}):(\d{2}
 _NUMBER = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
 _KW_HEADER = re.compile(r"(?<![a-z])kw(?![a-z])")
 _KWH_HEADER = re.compile(r"(?<![a-z])kwh(?![a-z])")
+_DE_DATE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{4}")
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_TIME_ONLY = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?")
+_INTEGER = re.compile(r"[+-]?\d+")
 _DETECT_ROWS = 200
 
 
@@ -1426,9 +1431,32 @@ def _detect_delimiter(lines: list[str]) -> str:
 
 
 def _find_timestamp(cells: list[str]) -> tuple[int, datetime] | None:
+    """(Index der Zeitspalte, Zeitstempel) einer Zeile.
+
+    Auch getrennte Spalten Datum + Uhrzeit (``01.08.2026;00:00;00:15;…``,
+    ``Datum;Zeit von;Zeit bis;kWh``): die erste Uhrzeit nach dem Datum gilt.
+    Zurückgegeben wird dann der Index der Uhrzeit-Spalte.
+    """
     for index, cell in enumerate(cells):
         if (ts := parse_timestamp(cell)) is not None:
             return index, ts
+        if index + 1 < len(cells) and (ts := _date_and_time(cell, cells[index + 1])) is not None:
+            return index + 1, ts
+    return None
+
+
+def _date_and_time(date_text: str, time_text: str) -> datetime | None:
+    """Datum (``TT.MM.JJJJ`` oder ``JJJJ-MM-TT``) + Uhrzeit (``HH:MM[:SS]``, auch ``24:00``)."""
+    if not _TIME_ONLY.fullmatch(time_text):
+        return None
+    if _DE_DATE.fullmatch(date_text):
+        return parse_timestamp(f"{date_text} {time_text}")
+    if _ISO_DATE.fullmatch(date_text):
+        try:
+            day = date.fromisoformat(date_text)
+        except ValueError:
+            return None
+        return parse_timestamp(f"{day:%d.%m.%Y} {time_text}")
     return None
 
 
@@ -1459,7 +1487,11 @@ def _detect_value_column(data_rows: list[tuple[int, list[str]]]) -> tuple[int, s
     werden als kWh/kW erkannt (kW wird genommen). Sonst gilt die erste
     Zahlenspalte als Energie der Viertelstunde in kWh (Annahme).
     """
-    first = _numeric_columns(data_rows[0][1], data_rows[0][0])
+    # erste Zeile, die überhaupt eine Zahl nach der Zeitspalte hat (die erste
+    # Datenzeile kann leer sein, z. B. fehlender Wert)
+    first: list[tuple[int, float]] = next(
+        (cols for ts_col, cells in data_rows if (cols := _numeric_columns(cells, ts_col))), []
+    )
     if not first:
         raise LoadProfileError("no_value_column")
     if len(first) >= 2:
@@ -1491,9 +1523,15 @@ def parse_load_profile(text: str, tz: tzinfo, *, timestamp_is_end: bool = False)
     * Wertspalte: Spalte „kW“ (Leistung) vor „kWh“ (Energie × 4). Ohne
       Kopfzeile siehe :func:`_detect_value_column`. Weitere Spalten (Status)
       werden ignoriert.
+    * Zeitstempel in einer Spalte oder getrennt als Datum + Uhrzeit (erste
+      Uhrzeit nach dem Datum, z. B. „Zeit von“).
+    * Absteigend sortierte Dateien (neueste Zeile zuerst) werden umgedreht.
+    * ``,`` als Trenn- und Dezimalzeichen zugleich (unquotiert) wird mit
+      ``decimal_comma_ambiguous`` abgelehnt statt still falsch gelesen.
     * Übersprungen (``rows_skipped``): Zeilen ohne Zeitstempel oder Wert,
       negative Werte, nicht existente Ortszeiten, nicht viertelstündliche
-      Zeitstempel. Mehrfach vorkommende Viertelstunden: letzter Wert gilt.
+      Zeitstempel. Mehrfach vorkommende Viertelstunden: der in Zeitfolge
+      letzte Wert gilt.
     """
     text = text.lstrip("\ufeff")
     lines = [line for line in text.splitlines() if line.strip()]
@@ -1505,6 +1543,7 @@ def parse_load_profile(text: str, tz: tzinfo, *, timestamp_is_end: bool = False)
     ]
 
     header_cols: tuple[int | None, int | None] = (None, None)
+    header: list[str] | None = None
     data_rows: list[tuple[int, list[str], datetime]] = []
     skipped = 0  # Zeilen ohne Zeitstempel nach Kopfzeile bzw. erster Datenzeile
     for cells in rows:
@@ -1516,11 +1555,17 @@ def parse_load_profile(text: str, tz: tzinfo, *, timestamp_is_end: bool = False)
             cols = _header_columns(cells)
             if cols != (None, None):
                 # Kopfzeile; Zeilen davor (z. B. Zählpunkt-Metadaten) zählen nicht.
-                header_cols, skipped = cols, 0
+                header_cols, header, skipped = cols, cells, 0
                 continue
         skipped += 1
     if not data_rows:
         raise LoadProfileError("no_data")
+    if delimiter == ",":
+        _check_comma_decimals(header, data_rows)
+    if _descending([ts for _col, _cells, ts in data_rows if ts.tzinfo is None]):
+        # Neueste Zeile zuerst: umdrehen, damit die doppelte Stunde im Oktober
+        # beim ersten Auftreten als Sommerzeit gelesen wird (siehe _localize).
+        data_rows.reverse()
 
     kw_col, kwh_col = header_cols
     if kw_col is not None:
@@ -1561,6 +1606,44 @@ def parse_load_profile(text: str, tz: tzinfo, *, timestamp_is_end: bool = False)
         value_column=unit,
         value_column_source=source,
     )
+
+
+def _descending(stamps: list[datetime]) -> bool:
+    """True, wenn die Zeitstempel überwiegend absteigend sortiert sind."""
+    down = sum(1 for a, b in pairwise(stamps) if b < a)
+    up = sum(1 for a, b in pairwise(stamps) if b > a)
+    return down > up
+
+
+def _width(cells: list[str]) -> int:
+    """Anzahl Zellen ohne leere Zellen am Zeilenende (``;`` am Ende ist üblich)."""
+    width = len(cells)
+    while width and not cells[width - 1]:
+        width -= 1
+    return width
+
+
+def _check_comma_decimals(header: list[str] | None, data_rows: list[tuple[int, list[str], datetime]]) -> None:
+    """Komma als Trennzeichen UND als Dezimalzeichen (``…00:00,0,5``) → klarer Fehler.
+
+    Unquotierte Dezimalkommas zerlegen eine Zahl in zwei Zellen; die Werte
+    wären still falsch. Erkannt an: mehr Zellen als die Kopfzeile, ungleich
+    vielen Zellen je Zeile, oder (ohne Kopfzeile) nur ganzen Zahlen in
+    mindestens zwei Spalten nach der Zeitspalte.
+    """
+    widths = {_width(cells) for _col, cells, _ts in data_rows}
+    if header is not None:
+        if max(widths) > _width(header):
+            raise LoadProfileError("decimal_comma_ambiguous")
+        return
+    if len(widths) > 1:
+        raise LoadProfileError("decimal_comma_ambiguous")
+    split_like = [
+        [cell for cell in cells[col + 1 :] if cell]
+        for col, cells, _ts in data_rows[:_DETECT_ROWS]
+    ]
+    if all(len(values) >= 2 and all(_INTEGER.fullmatch(v) for v in values) for values in split_like):
+        raise LoadProfileError("decimal_comma_ambiguous")
 
 
 def summarize_months(quarters: dict[datetime, float], tz: tzinfo) -> dict[str, ImportedMonth]:

@@ -158,6 +158,9 @@
     "no_value_column": {
       "message": "„{path}“: Keine Wertspalte (kW oder kWh) gefunden."
     },
+    "decimal_comma_ambiguous": {
+      "message": "„{path}“: Komma-getrennte Datei mit Dezimalkomma — die Werte sind nicht eindeutig. Mit „;“ als Trennzeichen exportieren oder die Werte in Anführungszeichen setzen."
+    },
     "no_valid_rows": {
       "message": "„{path}“: Keine gültigen Viertelstundenwerte gefunden."
     }
