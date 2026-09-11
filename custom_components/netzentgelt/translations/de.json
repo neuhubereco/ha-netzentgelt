@@ -181,7 +181,7 @@
         },
         "overwrite": {
           "name": "Eigene Messung überschreiben",
-          "description": "Monate mit eigener Messung durch den Import ersetzen. Aus: Die Spitze wird aus beidem ermittelt."
+          "description": "Eigene Messung eines Monats durch den Import ersetzen — nur, wenn alle eigenen Viertelstunden dieses Monats im importierten Zeitraum liegen (sonst zusammengeführt, siehe months_overwrite_skipped). Aus: Die Spitze wird aus beidem ermittelt."
         },
         "import_statistics": {
           "name": "Langzeitstatistik importieren",

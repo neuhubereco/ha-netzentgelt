@@ -9,7 +9,12 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, STORAGE_VERSION
-from .coordinator import NetzentgeltConfigEntry, NetzentgeltCoordinator, storage_key
+from .coordinator import (
+    NetzentgeltConfigEntry,
+    NetzentgeltCoordinator,
+    import_storage_key,
+    storage_key,
+)
 from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SWITCH]
@@ -42,8 +47,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: NetzentgeltConfigEntry)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: NetzentgeltConfigEntry) -> None:
-    """Gespeicherte Monatsspitzen beim Löschen des Eintrags entfernen."""
+    """Gespeicherte Monatsspitzen und Import-Rohwerte beim Löschen des Eintrags entfernen."""
     await Store(hass, STORAGE_VERSION, storage_key(entry.entry_id)).async_remove()
+    await Store(hass, STORAGE_VERSION, import_storage_key(entry.entry_id)).async_remove()
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: NetzentgeltConfigEntry) -> None:

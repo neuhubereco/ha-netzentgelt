@@ -773,10 +773,21 @@ class DayProfiles:
         day, slot = local_slot(result.start, self.tz)
         self._set(day, slot, result.kw, only_empty=False)
 
-    def fill(self, start: datetime, kw: float) -> bool:
-        """Slot nur füllen, wenn noch kein eigener Wert existiert (Import)."""
-        day, slot = local_slot(start, self.tz)
-        return self._set(day, slot, kw, only_empty=True)
+    def fill(self, quarters: dict[datetime, float], today: date) -> int:
+        """Import: leere Slots von heute und gestern füllen; Rückgabe = gefüllte Slots.
+
+        Slots mit eigenem Messwert bleiben unverändert. Fallen zwei importierte
+        Viertelstunden in denselben Slot (Umstellung auf Winterzeit), gilt wie
+        bei :meth:`add` das Maximum.
+        """
+        low = datetime.combine(today - timedelta(days=1), time(), self.tz).astimezone(UTC)
+        high = datetime.combine(today + timedelta(days=1), time(), self.tz).astimezone(UTC)
+        best: dict[tuple[date, int], float] = {}
+        for start, kw in quarters.items():
+            if low <= start < high:
+                key = local_slot(start, self.tz)
+                best[key] = max(best.get(key, kw), kw)
+        return sum(self._set(day, slot, kw, only_empty=True) for (day, slot), kw in best.items())
 
     def _set(self, day: date, slot: int, kw: float, *, only_empty: bool) -> bool:
         values = self.days.setdefault(day.isoformat(), [None] * SLOTS_PER_DAY)
@@ -881,6 +892,11 @@ class MonthStats:
     Messung; ``imported`` getrennt davon aus einem Lastgang-Import. Angezeigt
     wird die Kombination (``combined_peak``/``combined_profile``). Die Trennung
     macht einen wiederholten Import idempotent.
+
+    ``measured_first``/``measured_last``: Beginn der ersten/letzten eigenen
+    Viertelstunde (gültig oder nicht) — damit ``overwrite`` nur Messungen
+    ersetzt, die ganz im importierten Zeitraum liegen. ``None`` bei Daten aus
+    Versionen ohne dieses Feld.
     """
 
     peak_kw: float | None = None
@@ -889,6 +905,15 @@ class MonthStats:
     invalid_quarters: int = 0
     profile: SlotProfile = field(default_factory=SlotProfile)
     imported: ImportedMonth | None = None
+    measured_first: datetime | None = None
+    measured_last: datetime | None = None
+
+    def note_measured(self, start: datetime) -> None:
+        """Zeitraum der eigenen Messung erweitern."""
+        if self.measured_first is None or start < self.measured_first:
+            self.measured_first = start
+        if self.measured_last is None or start > self.measured_last:
+            self.measured_last = start
 
     @property
     def has_measurement(self) -> bool:
@@ -927,6 +952,8 @@ class MonthStats:
         self.valid_quarters = 0
         self.invalid_quarters = 0
         self.profile = SlotProfile()
+        self.measured_first = None
+        self.measured_last = None
 
     def summary(self) -> dict[str, Any]:
         """Kennzahlen für das ``history``-Attribut (ohne Profile)."""
@@ -949,6 +976,9 @@ class MonthStats:
             "invalid_quarters": self.invalid_quarters,
             **self.profile.as_dict(),
         }
+        if self.measured_first is not None and self.measured_last is not None:
+            data["measured_first"] = self.measured_first.isoformat()
+            data["measured_last"] = self.measured_last.isoformat()
         if self.imported is not None:
             data["imported"] = self.imported.as_dict()
         return data
@@ -957,6 +987,10 @@ class MonthStats:
     def from_dict(cls, data: dict[str, Any]) -> MonthStats:
         """Aus gespeicherten Daten laden (tolerant, auch Daten aus v0.1)."""
         peak = _to_float(data.get("peak_kw"))
+        first = parse_aware(data.get("measured_first"))
+        last = parse_aware(data.get("measured_last"))
+        if first is None or last is None:
+            first = last = None
         return cls(
             peak_kw=peak,
             peak_start=data.get("peak_start") if peak is not None else None,
@@ -964,7 +998,20 @@ class MonthStats:
             invalid_quarters=int(data.get("invalid_quarters", 0) or 0),
             profile=SlotProfile.from_dict(data),
             imported=ImportedMonth.from_dict(data.get("imported")),
+            measured_first=first,
+            measured_last=last,
         )
+
+
+def parse_aware(value: Any) -> datetime | None:
+    """ISO-Zeitpunkt mit Zeitzone lesen (tolerant: sonst ``None``)."""
+    if not isinstance(value, str):
+        return None
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return moment if moment.tzinfo is not None else None
 
 
 @dataclass(slots=True)
@@ -983,6 +1030,7 @@ class PeakTracker:
         if key not in self.months and too_old:
             return False  # älter als der Verlauf → verwerfen
         stats = self.months.setdefault(key, MonthStats())
+        stats.note_measured(result.start)
         if not result.valid or result.kw is None:
             stats.invalid_quarters += 1
             return False
@@ -1050,13 +1098,32 @@ def month_add(key: str, delta: int) -> str:
     return f"{index // 12:04d}-{index % 12 + 1:02d}"
 
 
+def month_bounds(key: str, tz: tzinfo) -> tuple[datetime, datetime]:
+    """Beginn und Ende (exklusiv, UTC) eines Kalendermonats in Ortszeit ``tz``."""
+    nxt = month_add(key, 1)
+    start = datetime(int(key[:4]), int(key[5:]), 1, tzinfo=tz)
+    end = datetime(int(nxt[:4]), int(nxt[5:]), 1, tzinfo=tz)
+    return start.astimezone(UTC), end.astimezone(UTC)
+
+
+def history_window(newest: str) -> tuple[str, str]:
+    """(ältester, neuester) Monatsschlüssel des Verlaufs."""
+    return month_add(newest, -(HISTORY_MONTHS - 1)), newest
+
+
 @dataclass(slots=True)
 class MergeReport:
-    """Ergebnis von :func:`merge_import` (Monatsschlüssel je Kategorie)."""
+    """Ergebnis von :func:`merge_import` (Monatsschlüssel je Kategorie).
+
+    ``overwrite_skipped``: ``overwrite`` war verlangt, die eigene Messung
+    reicht aber über den importierten Zeitraum hinaus → zusammengeführt
+    (steht zusätzlich in ``merged``).
+    """
 
     imported: list[str] = field(default_factory=list)
     merged: list[str] = field(default_factory=list)
     overwritten: list[str] = field(default_factory=list)
+    overwrite_skipped: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
 
 
@@ -1066,23 +1133,28 @@ def merge_import(
     current: str,
     *,
     overwrite: bool = False,
+    coverage: dict[str, tuple[datetime, datetime]] | None = None,
 ) -> MergeReport:
     """Importierte Monate in den Verlauf übernehmen.
 
+    ``months`` enthält je Monat den **vollständigen** Import-Teil (bei
+    :func:`plan_import` schon mit früheren Importen vereinigt) und ersetzt den
+    bisherigen Import-Teil — ein erneuter Import derselben Datei ändert also
+    nichts.
+
     * Monat ohne eigene Messung → Import übernehmen (``source: imported``).
-    * Monat mit eigener Messung → nur mit ``overwrite`` ersetzen; sonst
-      zusammenführen: Spitze = Maximum aus beidem (``source: mixed``).
+    * Monat mit eigener Messung → zusammenführen: Spitze = Maximum aus beidem
+      (``source: mixed``). Mit ``overwrite`` wird die eigene Messung nur
+      verworfen, wenn sie ganz im Zeitraum ``coverage[key]`` dieses Imports
+      liegt — sonst gingen Messwerte außerhalb verloren (``overwrite_skipped``).
+      Messungen ohne gespeicherten Zeitraum (ältere Versionen) nur, wenn der
+      Import den ganzen Kalendermonat abdeckt.
     * Übersprungen: Monate ohne Werte, nach dem laufenden Monat oder älter
       als der Verlauf (``HISTORY_MONTHS``).
-
-    Der Import wird je Monat getrennt von den Messwerten gespeichert und
-    ersetzt einen früheren Import desselben Monats — ein erneuter Import
-    derselben Datei ändert also nichts.
     """
     report = MergeReport()
     tracker.roll_to(current)
-    newest = tracker.current or current
-    oldest = month_add(newest, -(HISTORY_MONTHS - 1))
+    oldest, newest = history_window(tracker.current or current)
     for key in sorted(months):
         imported = months[key]
         if imported.quarters == 0 or not _valid_month_key(key) or key < oldest or key > newest:
@@ -1090,16 +1162,152 @@ def merge_import(
             continue
         stats = tracker.months.setdefault(key, MonthStats())
         if stats.has_measurement:
-            if overwrite:
+            span = coverage.get(key) if coverage else None
+            if overwrite and span is not None and _measurement_within(stats, key, span, tracker.tz):
                 stats.reset_measurement()
                 report.overwritten.append(key)
             else:
                 report.merged.append(key)
+                if overwrite:
+                    report.overwrite_skipped.append(key)
         else:
             report.imported.append(key)
         stats.imported = imported
     tracker.roll_to(newest)
     return report
+
+
+def _measurement_within(stats: MonthStats, key: str, span: tuple[datetime, datetime], tz: tzinfo) -> bool:
+    """True, wenn alle eigenen Viertelstunden des Monats im Zeitraum ``span`` liegen."""
+    begin, end = span
+    if stats.measured_first is None or stats.measured_last is None:
+        month_start, month_end = month_bounds(key, tz)
+        return begin <= month_start and end >= month_end
+    return begin <= stats.measured_first and stats.measured_last + QUARTER <= end
+
+
+# --- Rohwerte früherer Importe (eigener Store, nur beim Import geschrieben) ----
+
+IMPORT_DIGITS = 4
+
+
+@dataclass(slots=True)
+class ImportPlan:
+    """Ergebnis von :func:`plan_import` — im Executor berechnet.
+
+    * ``months``: vollständiger Import-Teil je Monat dieser Datei (vereinigt
+      mit früher importierten Viertelstunden, neuere Werte gewinnen),
+    * ``coverage``: Zeitraum dieser Datei je Monat ``[erste, letzte + 15 min)``,
+    * ``extended``: Monate, in denen früher importierte Viertelstunden
+      außerhalb dieser Datei erhalten blieben,
+    * ``replaced_quarters``: früher importierte Viertelstunden, die diese
+      Datei mit neuen Werten ersetzt hat,
+    * ``file_months``: alle Monate der Datei (auch übersprungene),
+    * ``store``: alle Rohwerte nach dem Import, fertig für den Import-Store.
+    """
+
+    months: dict[str, ImportedMonth]
+    coverage: dict[str, tuple[datetime, datetime]]
+    extended: list[str]
+    replaced_quarters: int
+    file_months: list[str]
+    store: dict[str, Any]
+
+
+def plan_import(
+    stored: Any,
+    quarters: dict[datetime, float],
+    tz: tzinfo,
+    newest: str,
+    legacy_peaks: dict[str, tuple[datetime, float]] | None = None,
+) -> ImportPlan:
+    """Neue Viertelstunden je Monat mit früher importierten vereinigen.
+
+    ``stored`` ist der Inhalt des Import-Stores (tolerant gelesen).
+    ``legacy_peaks``: Monatsspitzen früherer Importe, für die keine Rohwerte
+    gespeichert sind (Import mit einer Vorversion) — sie bleiben als einzelne
+    Viertelstunde erhalten, sofern diese Datei sie nicht mit einem neuen Wert
+    ersetzt. Rein rechnend, ohne Seiteneffekte (Executor-tauglich).
+    """
+    oldest, newest = history_window(newest)
+    previous_all = imported_quarters_from_dict(stored)
+    kept = {key: values for key, values in previous_all.items() if oldest <= key <= newest}
+    by_month: dict[str, dict[datetime, float]] = {}
+    for start, kw in quarters.items():
+        by_month.setdefault(quarter_month_key(start, tz), {})[start] = round(kw, IMPORT_DIGITS)
+
+    months: dict[str, ImportedMonth] = {}
+    coverage: dict[str, tuple[datetime, datetime]] = {}
+    extended: list[str] = []
+    replaced = 0
+    for key in sorted(by_month):
+        new = by_month[key]
+        if not _valid_month_key(key) or key < oldest or key > newest:
+            continue  # merge_import meldet den Monat als übersprungen
+        previous = kept.get(key)
+        if previous is None and legacy_peaks and key in legacy_peaks:
+            start, kw = legacy_peaks[key]
+            previous = {start: round(kw, IMPORT_DIGITS)}
+        previous = previous or {}
+        replaced += sum(1 for start in previous if start in new)
+        if any(start not in new for start in previous):
+            extended.append(key)
+        union = {**previous, **new}
+        kept[key] = union
+        months[key] = _summarize(union, tz)
+        coverage[key] = (min(new), max(new) + QUARTER)
+    # Monate außerhalb des Fensters: nur zur Anzeige als übersprungen weiterreichen
+    for key in by_month:
+        if key not in months:
+            months[key] = ImportedMonth()
+    return ImportPlan(
+        months=months,
+        coverage=coverage,
+        extended=extended,
+        replaced_quarters=replaced,
+        file_months=sorted(by_month),
+        store=imported_quarters_as_dict(kept),
+    )
+
+
+def imported_quarters_as_dict(months: dict[str, dict[datetime, float]]) -> dict[str, Any]:
+    """Rohwerte je Monat kompakt: Beginn der ersten Viertelstunde + Werteliste (``None`` = Lücke)."""
+    data: dict[str, Any] = {}
+    for key in sorted(months):
+        values = months[key]
+        if not values:
+            continue
+        first = min(values)
+        base = first.timestamp()
+        count = int((max(values).timestamp() - base) // QUARTER_SECONDS) + 1
+        series: list[float | None] = [None] * count
+        for start, kw in values.items():
+            series[int((start.timestamp() - base) // QUARTER_SECONDS)] = round(kw, IMPORT_DIGITS)
+        data[key] = {"first": first.astimezone(UTC).isoformat(), "kw": series}
+    return data
+
+
+def imported_quarters_from_dict(data: Any) -> dict[str, dict[datetime, float]]:
+    """Gegenstück zu :func:`imported_quarters_as_dict` (tolerant: Unlesbares wird ignoriert)."""
+    months: dict[str, dict[datetime, float]] = {}
+    if not isinstance(data, dict):
+        return months
+    for key, entry in data.items():
+        if not _valid_month_key(key) or not isinstance(entry, dict):
+            continue
+        first = parse_aware(entry.get("first"))
+        series = entry.get("kw")
+        if first is None or not isinstance(series, list) or first.timestamp() % QUARTER_SECONDS:
+            continue
+        first = first.astimezone(UTC)
+        values = {
+            first + QUARTER * index: kw
+            for index, raw in enumerate(series)
+            if (kw := _to_float(raw)) is not None and kw >= 0
+        }
+        if values:
+            months[key] = values
+    return months
 
 
 # =============================================================================
@@ -1361,6 +1569,14 @@ def summarize_months(quarters: dict[datetime, float], tz: tzinfo) -> dict[str, I
     for start, kw in sorted(quarters.items()):
         months.setdefault(quarter_month_key(start, tz), ImportedMonth()).add(start, kw, tz)
     return months
+
+
+def _summarize(quarters: dict[datetime, float], tz: tzinfo) -> ImportedMonth:
+    """Kennzahlen der Viertelstunden eines Monats."""
+    month = ImportedMonth()
+    for start, kw in sorted(quarters.items()):
+        month.add(start, kw, tz)
+    return month
 
 
 @dataclass(slots=True, frozen=True)

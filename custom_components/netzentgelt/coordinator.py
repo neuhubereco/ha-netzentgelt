@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import logging
@@ -66,6 +67,11 @@ def storage_key(entry_id: str) -> str:
     return f"{DOMAIN}.{entry_id}"
 
 
+def import_storage_key(entry_id: str) -> str:
+    """Store-Schlüssel für die Rohwerte importierter Lastgänge je Config-Entry."""
+    return f"{DOMAIN}.{entry_id}.import"
+
+
 class NetzentgeltCoordinator:
     """Hält Engine, Monatsspitzen und abgeleitete Werte eines Config-Entries."""
 
@@ -83,6 +89,12 @@ class NetzentgeltCoordinator:
         self.tracker = calc.PeakTracker(tz=self.tz)
         self.days = calc.DayProfiles(tz=self.tz)
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, storage_key(entry.entry_id))
+        # Rohwerte importierter Lastgänge: groß (bis ~100.000 Werte), nur beim Import
+        # gelesen/geschrieben, daher eigener Store mit Serialisierung im Executor.
+        self._import_store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, import_storage_key(entry.entry_id), serialize_in_event_loop=False
+        )
+        self._import_lock = asyncio.Lock()
         self._listeners: list[CALLBACK_TYPE] = []
 
         # Letzte abgeschlossene Viertelstunde (gültig oder nicht) und letzte gültige.
@@ -337,25 +349,49 @@ class NetzentgeltCoordinator:
         return dt_util.utcnow().astimezone(self.tz).date()
 
     # ------------------------------------------------------------- import
-    @callback
-    def async_import_load_profile(self, profile: calc.LoadProfile, *, overwrite: bool) -> dict[str, Any]:
-        """Gelesenen Lastgang in History und Tagesprofile übernehmen."""
-        now = dt_util.utcnow()
-        months = calc.summarize_months(profile.quarters, self.tz)
-        report = calc.merge_import(self.tracker, months, calc.month_key(now, self.tz), overwrite=overwrite)
-        today = now.astimezone(self.tz).date()
-        keep = {today, today - timedelta(days=1)}
-        filled = 0
-        for start, kw in profile.quarters.items():
-            if start.astimezone(self.tz).date() in keep:
-                filled += self.days.fill(start, kw)
-        self._recompute(now)
-        self._notify()
+    async def async_import_load_profile(
+        self, profile: calc.LoadProfile, *, overwrite: bool
+    ) -> dict[str, Any]:
+        """Gelesenen Lastgang in History und Tagesprofile übernehmen.
+
+        Die Vereinigung mit früher importierten Viertelstunden und die
+        Monatskennzahlen (bis ~100.000 Werte) werden im Executor berechnet;
+        nur das Übernehmen in den Verlauf läuft im Event-Loop. Der Lock
+        verhindert, dass zwei gleichzeitige Importe sich die Rohwerte
+        gegenseitig überschreiben.
+        """
+        async with self._import_lock:
+            now = dt_util.utcnow()
+            current = calc.month_key(now, self.tz)
+            self.tracker.roll_to(current)
+            newest = self.tracker.current or current
+            legacy = {
+                key: (start, stats.imported.peak_kw)
+                for key, stats in self.tracker.months.items()
+                if stats.imported is not None
+                and stats.imported.peak_kw is not None
+                and (start := calc.parse_aware(stats.imported.peak_start)) is not None
+            }
+            stored = await self._import_store.async_load()
+            plan = await self.hass.async_add_executor_job(
+                calc.plan_import, stored, profile.quarters, self.tz, newest, legacy
+            )
+            report = calc.merge_import(
+                self.tracker, plan.months, current, overwrite=overwrite, coverage=plan.coverage
+            )
+            filled = self.days.fill(profile.quarters, now.astimezone(self.tz).date())
+            self._recompute(now)
+            self._notify()
+            await self._import_store.async_save(plan.store)
         return {
+            "months": plan.file_months,
             "months_imported": report.imported,
             "months_merged": report.merged,
             "months_overwritten": report.overwritten,
+            "months_overwrite_skipped": report.overwrite_skipped,
             "months_skipped": report.skipped,
+            "months_import_extended": plan.extended,
+            "import_quarters_replaced": plan.replaced_quarters,
             "day_slots_filled": filled,
         }
 

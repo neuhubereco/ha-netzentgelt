@@ -148,7 +148,7 @@ async def _async_import_load_profile(hass: HomeAssistant, call: ServiceCall) -> 
     except OSError as err:
         raise _error("file_not_readable", path=raw_path) from err
 
-    merged = coordinator.async_import_load_profile(profile, overwrite=call.data[ATTR_OVERWRITE])
+    merged = await coordinator.async_import_load_profile(profile, overwrite=call.data[ATTR_OVERWRITE])
     await coordinator.async_save()
 
     statistics: dict[str, Any] = {
@@ -170,7 +170,6 @@ async def _async_import_load_profile(hass: HomeAssistant, call: ServiceCall) -> 
         "value_column_source": profile.value_column_source,
         "period_start": coordinator.local_iso(first),
         "period_end": coordinator.local_iso(last + calc.QUARTER) if last else None,
-        "months": sorted({calc.quarter_month_key(start, coordinator.tz) for start in profile.quarters}),
         **merged,
         **statistics,
     }
@@ -203,7 +202,7 @@ async def _async_import_statistics(
     vor Anlage der Entity — eigene Messwerte werden nie überschrieben, und
     der Recorder gerät nicht mit später selbst berechneten Stunden in Konflikt.
     """
-    hours = calc.hourly_statistics(profile.quarters)
+    hours = await hass.async_add_executor_job(calc.hourly_statistics, profile.quarters)
     result: dict[str, Any] = {
         "statistics_hours": 0,
         "statistics_hours_skipped": len(hours),

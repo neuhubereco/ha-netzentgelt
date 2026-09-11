@@ -337,11 +337,19 @@ Netz-OÖ-Portal (Zeitstempel = Beginn):
 
 **Was passiert.**
 - Monate **ohne** eigene Messung werden übernommen (`source: imported`).
-- Monate **mit** eigener Messung: Spitze = Maximum aus beidem (`source: mixed`); mit
-  `overwrite: true` ersetzt der Import die eigene Messung. Ein erneuter Import derselben Datei
-  ändert nichts (der Import wird je Monat getrennt gespeichert und ersetzt nur den früheren Import).
+- Monate **mit** eigener Messung: Spitze = Maximum aus beidem (`source: mixed`). Mit
+  `overwrite: true` ersetzt der Import die eigene Messung eines Monats **nur, wenn alle eigenen
+  Viertelstunden dieses Monats im importierten Zeitraum liegen** — sonst wird zusammengeführt
+  (Antwortfeld `months_overwrite_skipped`). Der laufende Monat wird so nie durch einen kürzeren
+  Import gelöscht.
+- **Mehrere Dateien ergänzen sich:** Die importierten Viertelstunden werden je Monat vereinigt
+  (eigener Speicher `.storage/netzentgelt.<eintrag>.import`); kommt eine Viertelstunde erneut
+  vor, gilt der neuere Wert. Beispiel: erst 15.07.–14.08., dann 15.08.–03.09. → der August enthält
+  beide Teile (`months_import_extended`, ersetzte Werte in `import_quarters_replaced`). Ein
+  erneuter Import derselben Datei ändert nichts.
 - Übersprungen: Monate älter als 36 Monate oder nach dem laufenden Monat.
-- Heute/gestern im Lastprofil: nur Viertelstunden ohne eigenen Wert werden gefüllt.
+- Heute/gestern im Lastprofil: nur Viertelstunden ohne eigenen Wert werden gefüllt (an der
+  doppelten Stunde im Oktober der größere Wert).
 - **Langzeitstatistik:** stündliche Mittel-/Min-/Maximalwerte als Statistik von
   `sensor.netzentgelt_15_min_leistung` — **nur für Stunden vor der ersten vorhandenen
   Statistik-Stunde dieses Sensors und vor seiner Anlage**, eigene Messwerte werden nie
@@ -349,8 +357,9 @@ Netz-OÖ-Portal (Zeitstempel = Beginn):
 
 **Antwort** (Felder): `rows`, `rows_skipped`, `duplicates`, `quarters`, `value_column`,
 `value_column_source`, `period_start`, `period_end`, `months`, `months_imported`, `months_merged`,
-`months_overwritten`, `months_skipped`, `day_slots_filled`, `statistics_hours`,
-`statistics_hours_skipped`, `statistics_until`, `statistics_note`.
+`months_overwritten`, `months_overwrite_skipped`, `months_skipped`, `months_import_extended`,
+`import_quarters_replaced`, `day_slots_filled`, `statistics_hours`, `statistics_hours_skipped`,
+`statistics_until`, `statistics_note`.
 
 **Sicherheit.** Nur Administratoren dürfen die Aktion ausführen. Erlaubt sind `.csv`/`.txt` bis
 20 MB im Konfigurationsverzeichnis, ohne versteckte Ordner (z. B. `.storage`); `..` und Symlinks
@@ -493,7 +502,9 @@ capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00,
   `overwrite`, `import_statistics`; returns a summary). CSV with `;`/`,`/tab, optional header, BOM,
   decimal comma, `DD.MM.YYYY HH:MM` local time or ISO 8601; a `kW` column is used as power, else
   `kWh` × 4. Months without own measurement are imported, months with own measurement are merged
-  (peak = maximum) unless `overwrite`. Hourly mean/min/max are imported as long-term statistics of
+  (peak = maximum); `overwrite` replaces the own measurement only if it lies entirely within the
+  imported period. Several files complement each other (imported quarter hours are united per
+  month, newer values win). Hourly mean/min/max are imported as long-term statistics of
   the 15-minute power sensor, **only for hours before its first existing statistic** and before the
   entity was created. Hidden folders, `..` and symlinks leaving the config directory are rejected;
   paths outside only via `allowlist_external_dirs`. Do not put the file into `/config/www`.

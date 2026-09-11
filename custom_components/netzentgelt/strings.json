@@ -181,7 +181,7 @@
         },
         "overwrite": {
           "name": "Overwrite own measurement",
-          "description": "Replace months that have own measurements with the import. Off: the peak is the maximum of both."
+          "description": "Replace the own measurement of a month with the import — only if all own quarter hours of that month lie within the imported period (otherwise merged, see months_overwrite_skipped). Off: the peak is the maximum of both."
         },
         "import_statistics": {
           "name": "Import long-term statistics",

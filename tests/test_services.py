@@ -201,3 +201,51 @@ async def test_import_merges_history_and_day_profiles(
     response = await _call(hass, entry.entry_id, "netzentgelt/lastgang.csv", overwrite=True)
     assert response["months_overwritten"] == ["2026-09"]
     assert _state(hass, entry, "month_peak").attributes["source"] == "imported"
+
+
+async def test_partial_reimport_and_overwrite_keep_data_outside_file(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, tmp_path: Path, hass_storage: dict
+) -> None:
+    """Befunde 2 und 3 über den Service: Teil-Import und overwrite verlieren nichts."""
+    hass.config.config_dir = str(tmp_path)
+    entry, meter = await _setup(hass, freezer, START)
+    await meter.run(19 * 60 + 30, kw=2.0)  # eigene Messung 11.09. 10:00–10:15 (2 kW)
+
+    first = [
+        *_quarters(datetime(2026, 7, 15, 0, 0, tzinfo=VIENNA), 4, 1.0),
+        (datetime(2026, 8, 4, 18, 0, tzinfo=VIENNA), 12.0),
+        *_quarters(datetime(2026, 8, 14, 0, 0, tzinfo=VIENNA), 4, 1.0),
+    ]
+    second = [
+        *_quarters(datetime(2026, 8, 15, 0, 0, tzinfo=VIENNA), 4, 1.0),
+        (datetime(2026, 8, 20, 18, 0, tzinfo=VIENNA), 4.0),
+        *_quarters(datetime(2026, 9, 3, 0, 0, tzinfo=VIENNA), 4, 1.0),
+    ]
+    (tmp_path / "a.csv").write_text(_csv(first), encoding="utf-8")
+    (tmp_path / "b.csv").write_text(_csv(second), encoding="utf-8")
+
+    response = await _call(hass, entry.entry_id, "a.csv", import_statistics=False)
+    assert response["months_import_extended"] == [] and response["import_quarters_replaced"] == 0
+    response = await _call(hass, entry.entry_id, "b.csv", import_statistics=False, overwrite=True)
+    assert response["months"] == ["2026-08", "2026-09"]
+    assert response["months_import_extended"] == ["2026-08"]
+    assert response["import_quarters_replaced"] == 0
+    assert response["months_overwritten"] == []
+    assert response["months_overwrite_skipped"] == ["2026-09"]  # Messung 11.09. liegt nach dem Import
+
+    peak = _state(hass, entry, "month_peak")
+    history = peak.attributes["history"]
+    assert history["2026-08"]["peak_kw"] == pytest.approx(12.0)  # früherer Import-Teil bleibt
+    assert history["2026-08"]["imported_quarters"] == 10
+    assert history["2026-09"]["source"] == "mixed"
+    assert history["2026-09"]["valid_quarters"] >= 1  # eigene Messung nicht verworfen
+    assert float(peak.state) == pytest.approx(2.0, abs=0.01)
+
+    stored = hass_storage[f"{DOMAIN}.{entry.entry_id}.import"]["data"]
+    assert sorted(stored) == ["2026-07", "2026-08", "2026-09"]
+
+    # Eintrag löschen entfernt auch die Rohwerte
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert f"{DOMAIN}.{entry.entry_id}.import" not in hass_storage
+    assert f"{DOMAIN}.{entry.entry_id}" not in hass_storage

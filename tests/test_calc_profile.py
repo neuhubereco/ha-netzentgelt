@@ -92,16 +92,33 @@ def test_day_profiles_invalid_prune_fill_and_roundtrip() -> None:
     days.add(_q(local(2026, 9, 11, 0, 0), None))  # ungültig → bleibt None
     days.add(_q(local(2026, 9, 11, 0, 15), 4.0))
     assert days.get(local(2026, 9, 11).date())[0] is None
-    # Import füllt nur leere Slots
-    assert days.fill(local(2026, 9, 11, 0, 0), 9.0) is True
-    assert days.fill(local(2026, 9, 11, 0, 15), 9.0) is False
-    assert days.get(local(2026, 9, 11).date())[:2] == [9.0, 4.0]
+    # Import füllt nur leere Slots von heute/gestern
+    today = local(2026, 9, 11).date()
+    imported = {
+        local(2026, 9, 11, 0, 0).astimezone(UTC): 9.0,
+        local(2026, 9, 11, 0, 15).astimezone(UTC): 9.0,  # eigener Wert → bleibt
+        local(2026, 9, 9, 12, 0).astimezone(UTC): 9.0,  # vorgestern → ignoriert
+    }
+    assert days.fill(imported, today) == 1
+    assert days.get(today)[:2] == [9.0, 4.0]
+    assert "2026-09-09" not in days.days
     days.add(_q(local(2026, 9, 9, 12, 0), 1.0))
     days.prune(local(2026, 9, 11).date())
     assert sorted(days.days) == ["2026-09-10", "2026-09-11"]
     restored = calc.DayProfiles.from_dict(VIENNA, days.as_dict())
     assert restored.days == days.days
     assert calc.DayProfiles.from_dict(VIENNA, {"kaputt": [1], "2026-09-11": [1, 2]}).days == {}
+
+
+def test_day_profiles_fill_fall_back_double_slot_takes_maximum() -> None:
+    """Import am 25.10.: 02:00 MESZ (3 kW) und 02:00 MEZ (5 kW) → Slot 8 = 5 kW wie bei add."""
+    days = calc.DayProfiles(tz=VIENNA)
+    quarters = {utc(2026, 10, 25, 0, 0): 3.0, utc(2026, 10, 25, 1, 0): 5.0}
+    assert days.fill(quarters, local(2026, 10, 25).date()) == 1
+    assert days.get(local(2026, 10, 25).date())[8] == 5.0
+    reverse = calc.DayProfiles(tz=VIENNA)
+    reverse.fill(dict(reversed(quarters.items())), local(2026, 10, 25).date())
+    assert reverse.get(local(2026, 10, 25).date())[8] == 5.0
 
 
 def test_month_profile_roundtrip_and_v01_store_compat() -> None:
@@ -171,12 +188,143 @@ def test_merge_rules_imported_mixed_overwrite_skipped() -> None:
     calc.merge_import(tracker, imported, "2026-09", overwrite=False)
     assert tracker.as_dict() == before
 
-    # overwrite ersetzt die eigene Messung
+    # overwrite: eigene Messung (20.08.) liegt außerhalb des Imports (02.08.) → bleibt
+    only_2nd = {"2026-08": (utc(2026, 8, 2, 17, 0), utc(2026, 8, 2, 17, 15))}
+    report = calc.merge_import(
+        tracker, {"2026-08": imported["2026-08"]}, "2026-09", overwrite=True, coverage=only_2nd
+    )
+    assert report.overwritten == [] and report.overwrite_skipped == ["2026-08"]
+    assert report.merged == ["2026-08"]
+    assert tracker.months["2026-08"].peak_kw == 6.0 and tracker.months["2026-08"].source == "mixed"
+    # Ohne Zeitraum (coverage) wird nie überschrieben
     report = calc.merge_import(tracker, {"2026-08": imported["2026-08"]}, "2026-09", overwrite=True)
-    assert report.overwritten == ["2026-08"]
+    assert report.overwrite_skipped == ["2026-08"]
+
+    # Import deckt die Messung ab → ersetzt
+    covering = {"2026-08": (utc(2026, 8, 1, 0, 0), utc(2026, 8, 21, 0, 0))}
+    report = calc.merge_import(
+        tracker, {"2026-08": imported["2026-08"]}, "2026-09", overwrite=True, coverage=covering
+    )
+    assert report.overwritten == ["2026-08"] and report.overwrite_skipped == []
     august = tracker.months["2026-08"]
     assert august.source == "imported" and august.peak_kw is None and august.valid_quarters == 0
+    assert august.measured_first is None
     assert august.combined_peak()[0] == 7.5
+
+
+def test_overwrite_never_drops_measurement_outside_import_running_month() -> None:
+    """Befund 3: Messung 01.–11.09., Import 15.08.–03.09. mit overwrite → September bleibt gemessen."""
+    tracker = calc.PeakTracker(tz=VIENNA)
+    for day in range(1, 12):
+        tracker.add(_q(local(2026, 9, day, 18, 0), 3.0 + day / 10))  # Spitze 4,1 kW am 11.09.
+    quarters = {
+        start.astimezone(UTC): 2.0
+        for start in (local(2026, 8, 15, 12, 0), local(2026, 9, 1, 12, 0), local(2026, 9, 3, 12, 0))
+    }
+    plan = calc.plan_import({}, quarters, VIENNA, "2026-09")
+    report = calc.merge_import(tracker, plan.months, "2026-09", overwrite=True, coverage=plan.coverage)
+    assert report.overwritten == [] and report.overwrite_skipped == ["2026-09"]
+    assert report.imported == ["2026-08"]
+    september = tracker.months["2026-09"]
+    assert september.peak_kw == pytest.approx(4.1) and september.valid_quarters == 11
+    assert september.source == "mixed"
+
+
+def test_overwrite_legacy_measurement_only_with_full_month() -> None:
+    """Messung ohne gespeicherten Zeitraum (ältere Version): nur ganzer Monat ersetzt sie."""
+    tracker = calc.PeakTracker(tz=VIENNA)
+    tracker.months["2026-08"] = calc.MonthStats.from_dict({"peak_kw": 6.0, "valid_quarters": 100})
+    tracker.roll_to("2026-09")
+    month = calc.summarize_months({utc(2026, 8, 10, 10, 0): 5.0}, VIENNA)
+    part = {"2026-08": (utc(2026, 8, 1, 0, 0), utc(2026, 8, 31, 0, 0))}
+    report = calc.merge_import(tracker, month, "2026-09", overwrite=True, coverage=part)
+    assert report.overwrite_skipped == ["2026-08"]
+    full = {"2026-08": calc.month_bounds("2026-08", VIENNA)}
+    assert full["2026-08"] == (utc(2026, 7, 31, 22, 0), utc(2026, 8, 31, 22, 0))
+    report = calc.merge_import(tracker, month, "2026-09", overwrite=True, coverage=full)
+    assert report.overwritten == ["2026-08"]
+
+
+def _range(first: datetime, last: datetime, kw: float) -> dict[datetime, float]:
+    """Viertelstunden von ``first`` bis ``last`` (inklusive) mit ``kw``."""
+    values: dict[datetime, float] = {}
+    moment = first.astimezone(UTC)
+    while moment <= last.astimezone(UTC):
+        values[moment] = kw
+        moment += calc.QUARTER
+    return values
+
+
+def test_partial_reimport_keeps_earlier_imported_part_of_month() -> None:
+    """Befund 2: Import 15.07.–14.08. (12 kW am 04.08.), dann 15.08.–03.09. → August-Spitze bleibt 12 kW."""
+    tracker = calc.PeakTracker(tz=VIENNA)
+    tracker.roll_to("2026-09")
+    first = _range(local(2026, 7, 15, 0, 0), local(2026, 8, 14, 23, 45), 1.0)
+    first[local(2026, 8, 4, 18, 0).astimezone(UTC)] = 12.0
+    plan = calc.plan_import({}, first, VIENNA, "2026-09")
+    calc.merge_import(tracker, plan.months, "2026-09")
+    store = plan.store
+    assert tracker.months["2026-08"].combined_peak()[0] == 12.0
+    august_first = tracker.months["2026-08"].imported
+    assert august_first is not None and august_first.quarters == 14 * 96
+
+    second = _range(local(2026, 8, 15, 0, 0), local(2026, 9, 3, 23, 45), 1.0)
+    second[local(2026, 8, 20, 18, 0).astimezone(UTC)] = 4.0
+    plan = calc.plan_import(store, second, VIENNA, "2026-09")
+    assert plan.extended == ["2026-08"] and plan.replaced_quarters == 0
+    calc.merge_import(tracker, plan.months, "2026-09")
+    august = tracker.months["2026-08"]
+    assert august.combined_peak() == (12.0, local(2026, 8, 4, 18, 0).astimezone(UTC).isoformat())
+    assert august.imported is not None and august.imported.quarters == 31 * 96
+    assert august.imported.profile.count[72] == 31  # 18:00 an allen Augusttagen
+    assert tracker.months["2026-07"].imported.quarters == 17 * 96  # Juli unverändert
+
+    # Überlappender Import mit neuen Werten: neuere gewinnen (12 kW am 04.08. wird korrigiert)
+    fix = {local(2026, 8, 4, 18, 0).astimezone(UTC): 3.0}
+    plan = calc.plan_import(plan.store, fix, VIENNA, "2026-09")
+    assert plan.replaced_quarters == 1 and plan.extended == ["2026-08"]
+    calc.merge_import(tracker, plan.months, "2026-09")
+    assert tracker.months["2026-08"].combined_peak()[0] == 4.0
+    assert tracker.months["2026-08"].imported.quarters == 31 * 96
+
+    # Gleiche Datei nochmal → nichts ändert sich
+    before = tracker.as_dict()
+    again = calc.plan_import(plan.store, fix, VIENNA, "2026-09")
+    calc.merge_import(tracker, again.months, "2026-09")
+    assert tracker.as_dict() == before and again.store == plan.store
+
+
+def test_import_store_roundtrip_trim_and_tolerance() -> None:
+    values = {utc(2026, 8, 1, 10, 0): 1.23456, utc(2026, 8, 1, 11, 0): 2.0}
+    data = calc.imported_quarters_as_dict({"2026-08": values})
+    assert data["2026-08"]["first"] == "2026-08-01T10:00:00+00:00"
+    assert data["2026-08"]["kw"] == [1.2346, None, None, None, 2.0]
+    assert calc.imported_quarters_from_dict(data) == {
+        "2026-08": {utc(2026, 8, 1, 10, 0): 1.2346, utc(2026, 8, 1, 11, 0): 2.0}
+    }
+    broken = {
+        "kaputt": {"first": "2026-08-01T10:00:00+00:00", "kw": [1]},
+        "2026-07": {"first": "nicht-iso", "kw": [1]},
+        "2026-06": {"first": "2026-06-01T10:07:00+00:00", "kw": [1]},  # nicht viertelstündlich
+        "2026-05": {"first": "2026-05-01T10:00:00", "kw": [1]},  # ohne Zeitzone
+        "2026-04": {"first": "2026-04-01T10:00:00+00:00", "kw": ["x", -1, None]},
+    }
+    assert calc.imported_quarters_from_dict(broken) == {}
+    assert calc.imported_quarters_from_dict(None) == {}
+    # Monate außerhalb des 36-Monats-Fensters fallen beim nächsten Import aus dem Store
+    old = calc.imported_quarters_as_dict({"2023-01": {utc(2023, 1, 1, 10, 0): 1.0}})
+    plan = calc.plan_import(old, {utc(2026, 8, 1, 10, 0): 1.0}, VIENNA, "2026-09")
+    assert sorted(plan.store) == ["2026-08"]
+
+
+def test_import_keeps_legacy_peak_without_raw_values() -> None:
+    """Import einer Vorversion (nur Kennzahlen gespeichert): die Spitze geht nicht verloren."""
+    legacy = {"2026-08": (utc(2026, 8, 4, 16, 0), 12.0)}
+    plan = calc.plan_import({}, {utc(2026, 8, 20, 16, 0): 4.0}, VIENNA, "2026-09", legacy)
+    assert plan.months["2026-08"].peak_kw == 12.0 and plan.extended == ["2026-08"]
+    # ersetzt die neue Datei genau diese Viertelstunde, gilt der neue Wert
+    plan = calc.plan_import({}, {utc(2026, 8, 4, 16, 0): 5.0}, VIENNA, "2026-09", legacy)
+    assert plan.months["2026-08"].peak_kw == 5.0 and plan.replaced_quarters == 1
 
 
 def test_imported_month_then_measured_becomes_mixed_and_profiles_combine() -> None:
