@@ -1,0 +1,167 @@
+blueprint:
+  name: "Netzentgelt: Benachrichtigung bei drohender Spitze und neuer Monatsspitze"
+  description: >-
+    Schickt eine Push-Nachricht, wenn der Binärsensor **Spitze droht** der
+    Integration *Netzentgelt AT* einschaltet (mit Prognose und Spielraum) und
+    wenn die **Monatsspitze** über die Staffelgrenze steigt.
+
+
+    Drossel gegen Spam: „Spitze droht“ höchstens einmal je Drosselzeit;
+    eine neue Monatsspitze über der Staffelgrenze nur beim ersten
+    Überschreiten und danach erst wieder, wenn sie um die Mindeststeigerung
+    weiter gewachsen ist.
+  domain: automation
+  source_url: https://github.com/neuhubereco/ha-netzentgelt/blob/main/blueprints/automation/netzentgelt/benachrichtigung.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    entities:
+      name: Netzentgelt
+      icon: mdi:transmission-tower-import
+      input:
+        peak_imminent:
+          name: Spitze droht
+          selector:
+            entity:
+              filter:
+                - integration: netzentgelt
+                  domain: binary_sensor
+        forecast_sensor:
+          name: Prognose Viertelstunde
+          selector:
+            entity:
+              filter:
+                - integration: netzentgelt
+                  domain: sensor
+                  device_class: power
+        headroom_sensor:
+          name: Spielraum
+          selector:
+            entity:
+              filter:
+                - integration: netzentgelt
+                  domain: sensor
+                  device_class: power
+        month_peak_sensor:
+          name: Monatsspitze
+          selector:
+            entity:
+              filter:
+                - integration: netzentgelt
+                  domain: sensor
+                  device_class: power
+        tier_limit:
+          name: Staffelgrenze
+          description: Einstellung „Staffelgrenze“ der Integration (number-Entity).
+          selector:
+            entity:
+              filter:
+                - integration: netzentgelt
+                  domain: number
+    notification:
+      name: Benachrichtigung
+      icon: mdi:cellphone-message
+      input:
+        notify_action:
+          name: Benachrichtigungs-Aktion
+          description: >-
+            Aktion, die die Nachricht verschickt, z. B. notify.mobile_app_mein_handy
+            (Companion-App) oder notify.notify.
+          default: notify.notify
+          selector:
+            text:
+        throttle_minutes:
+          name: Drossel „Spitze droht“
+          description: Mindestabstand zwischen zwei Nachrichten dieser Automation.
+          default: 15
+          selector:
+            number:
+              min: 1
+              max: 240
+              step: 1
+              unit_of_measurement: min
+              mode: box
+        step_kw:
+          name: Mindeststeigerung Monatsspitze
+          description: Nach der ersten Nachricht erst wieder melden, wenn die Monatsspitze um so viel gestiegen ist.
+          default: 0.5
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.1
+              unit_of_measurement: kW
+              mode: box
+
+mode: queued
+max: 5
+
+variables:
+  peak_imminent: !input peak_imminent
+  forecast_sensor: !input forecast_sensor
+  headroom_sensor: !input headroom_sensor
+  month_peak_sensor: !input month_peak_sensor
+  tier_limit_entity: !input tier_limit
+  throttle_minutes: !input throttle_minutes
+  step_kw: !input step_kw
+  limit_kw: "{{ states(tier_limit_entity) | float(10) }}"
+
+triggers:
+  - trigger: state
+    entity_id: !input peak_imminent
+    to: "on"
+    id: imminent
+  - trigger: state
+    entity_id: !input month_peak_sensor
+    to: ~
+    id: new_peak
+
+conditions:
+  - condition: or
+    conditions:
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: imminent
+          - condition: template
+            value_template: >-
+              {% set last = this.attributes.last_triggered %}
+              {{ last is none or (now() - last).total_seconds() >= throttle_minutes * 60 }}
+      - condition: and
+        conditions:
+          - condition: trigger
+            id: new_peak
+          - condition: template
+            value_template: >-
+              {% set new = trigger.to_state.state | float(none) %}
+              {% set old = trigger.from_state.state | float(none) if trigger.from_state else none %}
+              {{ new is not none and new > limit_kw
+                 and (old is none or old <= limit_kw or new >= old + step_kw) }}
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: imminent
+        sequence:
+          - action: !input notify_action
+            data:
+              title: "Netzentgelt: Spitze droht"
+              message: >-
+                Prognose {{ states(forecast_sensor) | float(0) | round(1) }} kW
+                (Ziel {{ state_attr(peak_imminent, 'target_kw') }} kW).
+                {% set room = states(headroom_sensor) | float(none) %}
+                {% if room is not none and room < 0 %}Jetzt {{ (-room) | round(1) }} kW weniger beziehen.
+                {% elif room is not none %}Spielraum {{ room | round(1) }} kW.{% endif %}
+      - conditions:
+          - condition: trigger
+            id: new_peak
+        sequence:
+          - action: !input notify_action
+            data:
+              title: "Netzentgelt: neue Monatsspitze"
+              message: >-
+                {{ trigger.to_state.state | float(0) | round(2) }} kW
+                {%- set start = state_attr(month_peak_sensor, 'peak_quarter_start') %}
+                {%- if start %} ({{ as_timestamp(start) | timestamp_custom('%d.%m. %H:%M') }}){% endif %}
+                — über der Staffelgrenze von {{ limit_kw }} kW.

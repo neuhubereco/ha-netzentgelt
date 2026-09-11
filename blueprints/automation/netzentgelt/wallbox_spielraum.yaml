@@ -1,0 +1,203 @@
+blueprint:
+  name: "Netzentgelt: Wallbox am Spielraum ausrichten"
+  description: >-
+    Passt den Ladestrom einer Wallbox (number-Entity in Ampere) laufend an den
+    Sensor **Spielraum** der Integration *Netzentgelt AT* an, damit der
+    15-Minuten-Mittelwert des Netzbezugs die Ziel-Leistung nicht überschreitet.
+
+
+    Läuft nur, solange der Schalter **Peak-Shaving aktiv** eingeschaltet ist.
+    Reicht selbst der Mindeststrom nicht (Spielraum bleibt negativ), kann das
+    Laden über einen optionalen Schalter pausiert werden; es wird fortgesetzt,
+    sobald wieder Platz für den Mindeststrom ist (spätestens nach 30 Minuten)
+    oder Peak-Shaving ausgeschaltet wird.
+
+
+    Nicht an jeder Wallbox getestet — zuerst in der Ablaufverfolgung beobachten.
+  domain: automation
+  source_url: https://github.com/neuhubereco/ha-netzentgelt/blob/main/blueprints/automation/netzentgelt/wallbox_spielraum.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    netzentgelt:
+      name: Netzentgelt
+      icon: mdi:transmission-tower-import
+      input:
+        headroom_sensor:
+          name: Spielraum
+          description: Sensor „Spielraum“ der Integration (kW, negativ = drosseln).
+          selector:
+            entity:
+              filter:
+                - integration: netzentgelt
+                  domain: sensor
+                  device_class: power
+        peak_shaving_switch:
+          name: Peak-Shaving aktiv
+          description: Schalter „Peak-Shaving aktiv“ der Integration (Freigabe).
+          selector:
+            entity:
+              filter:
+                - integration: netzentgelt
+                  domain: switch
+    wallbox:
+      name: Wallbox
+      icon: mdi:ev-station
+      input:
+        current_entity:
+          name: Ladestrom
+          description: number-Entity, die den Ladestrom in Ampere vorgibt.
+          selector:
+            entity:
+              filter:
+                - domain: number
+        phases:
+          name: Phasen
+          default: 3
+          selector:
+            number:
+              min: 1
+              max: 3
+              step: 1
+              mode: slider
+        voltage:
+          name: Spannung je Phase
+          default: 230
+          selector:
+            number:
+              min: 200
+              max: 250
+              step: 1
+              unit_of_measurement: V
+              mode: box
+        min_current:
+          name: Mindeststrom
+          default: 6
+          selector:
+            number:
+              min: 1
+              max: 32
+              step: 1
+              unit_of_measurement: A
+              mode: box
+        max_current:
+          name: Höchststrom
+          default: 16
+          selector:
+            number:
+              min: 6
+              max: 63
+              step: 1
+              unit_of_measurement: A
+              mode: box
+        deadband:
+          name: Totband
+          description: Erst ab dieser Abweichung wird der Ladestrom geändert (schont die Wallbox).
+          default: 1
+          selector:
+            number:
+              min: 0.5
+              max: 5
+              step: 0.5
+              unit_of_measurement: A
+              mode: box
+        pause_switch:
+          name: Lade-Freigabe (optional)
+          description: >-
+            Schalter, der das Laden erlaubt (an = laden). Wird ausgeschaltet, wenn
+            selbst der Mindeststrom das Ziel reißen würde. Leer lassen, wenn es
+            keinen solchen Schalter gibt.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: switch
+        reset_when_disabled:
+          name: Beim Ausschalten auf Höchststrom
+          description: Setzt den Ladestrom auf den Höchststrom, wenn Peak-Shaving ausgeschaltet wird.
+          default: true
+          selector:
+            boolean:
+
+mode: single
+max_exceeded: silent
+
+variables:
+  headroom_entity: !input headroom_sensor
+  switch_entity: !input peak_shaving_switch
+  current_entity: !input current_entity
+  pause_entity: !input pause_switch
+  phases: !input phases
+  voltage: !input voltage
+  min_a: !input min_current
+  max_a: !input max_current
+  deadband: !input deadband
+  reset_when_disabled: !input reset_when_disabled
+  kw_per_a: "{{ phases * voltage / 1000 }}"
+
+triggers:
+  - trigger: state
+    entity_id: !input headroom_sensor
+    to: ~
+    id: headroom
+  - trigger: state
+    entity_id: !input peak_shaving_switch
+    to: "on"
+    id: enabled
+  - trigger: state
+    entity_id: !input peak_shaving_switch
+    to: "off"
+    id: disabled
+
+actions:
+  - choose:
+      - alias: Peak-Shaving ausgeschaltet → Höchststrom
+        conditions:
+          - condition: trigger
+            id: disabled
+          - "{{ reset_when_disabled and states(current_entity) | is_number }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "{{ current_entity }}"
+            data:
+              value: "{{ max_a }}"
+      - alias: Regeln
+        conditions:
+          - "{{ is_state(switch_entity, 'on') }}"
+          - "{{ states(headroom_entity) | is_number and states(current_entity) | is_number }}"
+        sequence:
+          - variables:
+              current_a: "{{ states(current_entity) | float }}"
+              headroom_kw: "{{ states(headroom_entity) | float }}"
+              wanted_a: "{{ current_a + headroom_kw / kw_per_a }}"
+              target_a: "{{ [[wanted_a | round(0, 'floor'), min_a] | max, max_a] | min }}"
+          - choose:
+              - alias: Selbst der Mindeststrom ist zu viel → Laden pausieren
+                conditions:
+                  - "{{ pause_entity != '' and wanted_a < min_a and is_state(pause_entity, 'on') }}"
+                sequence:
+                  - action: number.set_value
+                    target:
+                      entity_id: "{{ current_entity }}"
+                    data:
+                      value: "{{ min_a }}"
+                  - action: switch.turn_off
+                    target:
+                      entity_id: "{{ pause_entity }}"
+                  - wait_template: >-
+                      {{ is_state(switch_entity, 'off')
+                         or states(headroom_entity) | float(0) >= (min_a + deadband) * kw_per_a }}
+                    timeout: "00:30:00"
+                    continue_on_timeout: true
+                  - action: switch.turn_on
+                    target:
+                      entity_id: "{{ pause_entity }}"
+            default:
+              - condition: template
+                value_template: "{{ (target_a - current_a) | abs >= deadband }}"
+              - action: number.set_value
+                target:
+                  entity_id: "{{ current_entity }}"
+                data:
+                  value: "{{ target_a }}"

@@ -1,0 +1,125 @@
+blueprint:
+  name: "Netzentgelt: Lasten abwerfen, wenn eine Spitze droht"
+  description: >-
+    Schaltet ausgewählte Lasten (Schalter oder Input-Boolean, z. B. Heizstab,
+    Pool-Pumpe, Boiler) aus, sobald der Binärsensor **Spitze droht** der
+    Integration *Netzentgelt AT* einschaltet — und schaltet danach **nur die
+    wieder ein, die diese Automation selbst ausgeschaltet hat**: nach Ende der
+    drohenden Spitze plus Wartezeit, sofort beim Ausschalten von
+    **Peak-Shaving aktiv** oder spätestens nach der Höchstdauer.
+
+
+    Läuft nur, solange Peak-Shaving aktiv ist. Wird Home Assistant während der
+    Wartezeit neu gestartet, bleiben die Lasten aus (bitte dann von Hand
+    einschalten). Wärmepumpen besser drosseln als hart abschalten.
+  domain: automation
+  source_url: https://github.com/neuhubereco/ha-netzentgelt/blob/main/blueprints/automation/netzentgelt/last_abwerfen.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    peak_imminent:
+      name: Spitze droht
+      description: Binärsensor „Spitze droht“ der Integration.
+      selector:
+        entity:
+          filter:
+            - integration: netzentgelt
+              domain: binary_sensor
+    peak_shaving_switch:
+      name: Peak-Shaving aktiv
+      description: Schalter „Peak-Shaving aktiv“ der Integration (Freigabe).
+      selector:
+        entity:
+          filter:
+            - integration: netzentgelt
+              domain: switch
+    loads:
+      name: Lasten
+      description: Diese Schalter werden ausgeschaltet, sofern sie gerade an sind.
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain:
+                - switch
+                - input_boolean
+    wait_minutes:
+      name: Wartezeit nach Ende
+      description: So lange muss „Spitze droht“ aus sein, bevor die Lasten wieder eingeschaltet werden.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          step: 1
+          unit_of_measurement: min
+          mode: box
+    max_minutes:
+      name: Höchstdauer
+      description: Spätestens nach dieser Zeit werden die Lasten wieder eingeschaltet.
+      default: 60
+      selector:
+        number:
+          min: 5
+          max: 240
+          step: 5
+          unit_of_measurement: min
+          mode: box
+    restore_at_quarter:
+      name: Erst zur nächsten Viertelstunde wieder einschalten
+      description: >-
+        Nach der Wartezeit zusätzlich bis :00/:15/:30/:45 warten. Die neue
+        Viertelstunde beginnt bei null — so reißt das Wiedereinschalten das
+        Ziel seltener.
+      default: false
+      selector:
+        boolean:
+
+mode: single
+max_exceeded: silent
+
+variables:
+  load_entities: !input loads
+  restore_at_quarter: !input restore_at_quarter
+
+triggers:
+  - trigger: state
+    entity_id: !input peak_imminent
+    to: "on"
+
+conditions:
+  - condition: state
+    entity_id: !input peak_shaving_switch
+    state: "on"
+
+actions:
+  - variables:
+      switched_off: "{{ load_entities | select('is_state', 'on') | list }}"
+  - condition: template
+    value_template: "{{ switched_off | count > 0 }}"
+  - action: homeassistant.turn_off
+    target:
+      entity_id: "{{ switched_off }}"
+  - wait_for_trigger:
+      - trigger: state
+        entity_id: !input peak_imminent
+        to: "off"
+        for:
+          minutes: !input wait_minutes
+        id: ended
+      - trigger: state
+        entity_id: !input peak_shaving_switch
+        to: "off"
+        id: disabled
+    timeout:
+      minutes: !input max_minutes
+    continue_on_timeout: true
+  - if:
+      - "{{ restore_at_quarter and wait.trigger is not none and wait.trigger.id == 'ended' }}"
+    then:
+      - wait_template: "{{ now().minute % 15 == 0 }}"
+        timeout: "00:15:00"
+        continue_on_timeout: true
+  - action: homeassistant.turn_on
+    target:
+      entity_id: "{{ switched_off }}"
