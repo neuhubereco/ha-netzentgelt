@@ -14,6 +14,8 @@
 #   immer dem Schieberegler „Ziel-Leistung“.
 # * `data_generator` baut die Säulen aus den Attributen der Integration
 #   (kein Recorder nötig — die Listen werden bewusst nicht aufgezeichnet).
+# * Layout: Ansicht vom Typ „sections“; die Grafiken gehen über die volle Breite
+#   (`column_span`), die Höhe ist per `apex_config.chart.height` fest.
 # * `EVAL:`-Ausdrücke in `apex_config` werden beim Laden der Seite berechnet;
 #   bleibt das Dashboard über Mitternacht offen, einmal neu laden.
 title: Netzentgelt
@@ -21,343 +23,343 @@ views:
   - title: Grafiken
     path: netzentgelt-grafiken
     icon: mdi:chart-bar
-    cards:
-      # --- Einstellungen: Ziel per Schieberegler, Freigabe für Automationen ---
-      - type: entities
-        title: Peak-Shaving
-        entities:
-          - entity: switch.netzentgelt_peak_shaving_aktiv
-            name: Peak-Shaving aktiv
-          - entity: number.netzentgelt_ziel_leistung
-            name: Ziel (15-Min-Mittel)
-          - entity: binary_sensor.netzentgelt_spitze_droht
-            name: Spitze droht
-
-      # --- (iv) Prognose der laufenden Viertelstunde als Tacho, mit Ziel ---
-      # Äußerer Ring: Prognose, innerer Ring: Ziel — beide auf 0–20 kW.
-      # Die Zahlen stehen oben im Kopf (Prozentangaben im Ring ausgeblendet).
-      - type: custom:apexcharts-card
-        chart_type: radialBar
-        header:
-          show: true
-          title: Prognose laufende Viertelstunde
-          show_states: true
-          colorize_states: true
-        experimental:
-          color_threshold: true
-        series:
-          - entity: sensor.netzentgelt_prognose_viertelstunde
-            name: Prognose
+    type: sections
+    max_columns: 3
+    sections:
+      - type: grid
+        cards:
+          # --- Prognose der laufenden Viertelstunde (Core-Karte, gut lesbar) ---
+          - type: gauge
+            name: Prognose laufende Viertelstunde
+            entity: sensor.netzentgelt_prognose_viertelstunde
             unit: kW
-            float_precision: 2
             min: 0
             max: 20
-            show:
-              header_color_threshold: true
-            color_threshold:
-              - value: 0
-                color: "#43a047"
-              - value: 9
-                color: "#fbc02d"
-              - value: 10
-                color: "#e53935"
-          - entity: number.netzentgelt_ziel_leistung
-            name: Ziel
-            unit: kW
-            float_precision: 1
-            min: 0
-            max: 20
-            color: "#78909c"
-        apex_config:
-          plotOptions:
-            radialBar:
-              startAngle: -135
-              endAngle: 135
-              hollow:
-                size: "45%"
-              dataLabels:
-                name:
-                  show: false
-                value:
-                  show: false
-                total:
-                  show: false
-          legend:
-            show: false
-
-      # --- (v) Spielraum: wie viel darf bis Viertelstundenende noch dazukommen ---
-      # Rot = drosseln. Kopfzeile zeigt den aktuellen Wert, die Säulen den
-      # Verlauf der letzten 2 Stunden (5-Minuten-Werte).
-      - type: custom:apexcharts-card
-        graph_span: 2h
-        header:
-          show: true
-          title: Spielraum bis zum Ziel
-          show_states: true
-          colorize_states: true
-        experimental:
-          color_threshold: true
-        yaxis:
-          - decimals: 1
-        series:
-          - entity: sensor.netzentgelt_spielraum
-            name: Spielraum
-            type: column
-            unit: kW
-            float_precision: 2
-            group_by:
-              func: last
-              duration: 5min
-            show:
-              in_header: raw
-              header_color_threshold: true
-            color_threshold:
-              - value: -100
-                color: "#e53935"
-              - value: 0
-                color: "#43a047"
-
-      # --- (i) Heute: 96 Viertelstunden, Ziel, Staffelgrenze, Monatsspitze ---
-      # Zeitumstellung: graph_span ist eine feste Dauer (24 h ab Mitternacht).
-      # Am letzten Oktobersonntag (25-h-Tag) endet das Fenster um 23:00 — die
-      # Säulen 23:00–23:45 fehlen dann in der Grafik (die Werte selbst sind im
-      # Attribut today_kw vollständig); am letzten Märzsonntag (23-h-Tag) bleibt
-      # am Ende eine leere Stunde. Wer das nicht will: graph_span: 25h (dafür an
-      # allen anderen Tagen eine leere Stunde nach Mitternacht).
-      - type: custom:apexcharts-card
-        graph_span: 24h
-        span:
-          start: day
-        header:
-          show: true
-          title: Heute – Viertelstunden
-          show_states: true
-          colorize_states: true
-        experimental:
-          color_threshold: true
-        yaxis:
-          - min: 0
-            max: ~12
-            decimals: 1
-        apex_config:
-          tooltip:
-            x:
-              format: HH:mm
-        series:
-          - entity: sensor.netzentgelt_lastprofil
-            name: Viertelstunde
-            type: column
-            unit: kW
-            float_precision: 2
-            show:
-              in_header: false
-            # Farbe je Säule: grün < Ziel − 1, gelb bis Ziel, rot darüber (für Ziel 10 kW)
-            color_threshold:
-              - value: 0
-                color: "#43a047"
-              - value: 9
-                color: "#fbc02d"
-              - value: 10
-                color: "#e53935"
-            # Slot i = Viertelstunde ab i × 15 min nach Mitternacht (Wanduhrzeit,
-            # damit Tage mit Zeitumstellung stimmen); null = fehlend/ungültig.
-            data_generator: |
-              const values = entity.attributes.today_kw || [];
-              const day = moment().startOf('day');
-              return values.map((kw, slot) => [
-                day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
-                kw,
-              ]);
-          - entity: number.netzentgelt_ziel_leistung
-            name: Ziel
-            type: line
-            curve: stepline
-            stroke_width: 2
-            stroke_dash: 6
-            color: "#1e88e5"
-            unit: kW
-            float_precision: 1
-            data_generator: |
-              const kw = Number(entity.state);
-              return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
-          - entity: number.netzentgelt_staffelgrenze
-            name: Staffelgrenze
-            type: line
-            curve: stepline
-            stroke_width: 1
-            stroke_dash: 2
-            color: "#757575"
-            unit: kW
-            float_precision: 1
-            data_generator: |
-              const kw = Number(entity.state);
-              return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
-          - entity: sensor.netzentgelt_monatsspitze
-            name: Monatsspitze
-            type: line
-            curve: stepline
-            stroke_width: 2
-            color: "#8e24aa"
-            unit: kW
-            float_precision: 2
-            data_generator: |
-              const kw = Number(entity.state);
-              return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
-
-      # --- (ii) Wann entstehen deine Spitzen? Monatsprofil über den Tag ---
-      # Säulen: höchste Viertelstunde je Uhrzeit im laufenden Monat, Linie: Mittel.
-      # Bänder: Tarifzeitfenster laut Verordnungsentwurf — SNAP 10–16 Uhr gilt nur
-      # 1.4.–30.9., WiNAP 22–04 Uhr nur 1.10.–31.3. Der Einfachheit halber sind
-      # beide immer eingezeichnet (feste Uhrzeiten des heutigen Tages).
-      - type: custom:apexcharts-card
-        graph_span: 24h
-        span:
-          start: day
-        header:
-          show: true
-          title: Wann entstehen deine Spitzen? (dieser Monat)
-        yaxis:
-          - min: 0
-            decimals: 1
-        apex_config:
-          tooltip:
-            x:
-              format: HH:mm
-          annotations:
-            xaxis:
-              - x: "EVAL:new Date().setHours(10, 0, 0, 0)"
-                x2: "EVAL:new Date().setHours(16, 0, 0, 0)"
-                fillColor: "#fdd835"
-                opacity: 0.15
-                label:
-                  text: SNAP (Apr–Sep)
-                  borderColor: "#fbc02d"
-              - x: "EVAL:new Date().setHours(0, 0, 0, 0)"
-                x2: "EVAL:new Date().setHours(4, 0, 0, 0)"
-                fillColor: "#5c6bc0"
-                opacity: 0.15
-                label:
-                  text: WiNAP (Okt–Mär)
-                  borderColor: "#5c6bc0"
-              - x: "EVAL:new Date().setHours(22, 0, 0, 0)"
-                x2: "EVAL:new Date().setHours(24, 0, 0, 0)"
-                fillColor: "#5c6bc0"
-                opacity: 0.15
-                label:
-                  text: WiNAP
-                  borderColor: "#5c6bc0"
-        series:
-          - entity: sensor.netzentgelt_lastprofil
-            name: Höchste Viertelstunde
-            type: column
-            color: "#e53935"
-            opacity: 0.8
-            unit: kW
-            float_precision: 2
-            data_generator: |
-              const values = entity.attributes.month_max_kw || [];
-              const day = moment().startOf('day');
-              return values.map((kw, slot) => [
-                day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
-                kw,
-              ]);
-          - entity: sensor.netzentgelt_lastprofil
-            name: Mittel
-            type: line
-            curve: smooth
-            stroke_width: 2
-            color: "#1e88e5"
-            unit: kW
-            float_precision: 2
-            extend_to: false
-            data_generator: |
-              const values = entity.attributes.month_avg_kw || [];
-              const day = moment().startOf('day');
-              return values.map((kw, slot) => [
-                day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
-                kw,
-              ]);
-          - entity: number.netzentgelt_ziel_leistung
-            name: Ziel
-            type: line
-            curve: stepline
-            stroke_width: 2
-            stroke_dash: 6
-            color: "#43a047"
-            unit: kW
-            float_precision: 1
-            data_generator: |
-              const kw = Number(entity.state);
-              return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
-
-      # --- (iii) Monatsspitzen der letzten 36 Monate + Leistungspreis ---
-      # Säulen grün bis 10 kW (Stufe 1), rot darüber (Stufe 2; 10 kW ist die im
-      # Entwurf festgelegte Staffelgrenze für Netzebene 7). Linie: geschätzter
-      # Leistungspreis je Monat, mit den AKTUELLEN Preiseinstellungen gerechnet.
-      # Importierte Monate (Portal-Export) erscheinen genauso.
-      # Wenige Daten? graph_span z. B. auf 365d verkürzen.
-      - type: custom:apexcharts-card
-        graph_span: 1096d
-        span:
-          end: month
-        header:
-          show: true
-          title: Monatsspitzen und Leistungspreis
-        experimental:
-          color_threshold: true
-        yaxis:
-          - id: kw
-            min: 0
-            decimals: 1
+            needle: true
+            severity:
+              green: 0
+              yellow: 9     # Ziel − 1 (für Ziel 10 kW)
+              red: 10       # Staffelgrenze / Ziel
+            grid_options:
+              columns: full
+          # --- Einstellungen: Ziel per Schieberegler, Freigabe für Automationen ---
+          - type: entities
+            title: Peak-Shaving
+            entities:
+              - entity: switch.netzentgelt_peak_shaving_aktiv
+                name: Peak-Shaving aktiv
+              - entity: number.netzentgelt_ziel_leistung
+                name: Ziel (15-Min-Mittel)
+              - entity: sensor.netzentgelt_spielraum
+                name: Spielraum bis zum Ziel
+              - entity: binary_sensor.netzentgelt_spitze_droht
+                name: Spitze droht
+            grid_options:
+              columns: full
+      - type: grid
+        cards:
+          - type: entities
+            title: Dieser Monat
+            entities:
+              - entity: sensor.netzentgelt_monatsspitze
+                name: Monatsspitze
+              - type: attribute
+                entity: sensor.netzentgelt_monatsspitze
+                attribute: peak_quarter_start
+                name: erreicht
+                format: datetime
+              - entity: sensor.netzentgelt_verrechnete_leistung
+                name: Verrechnete Leistung
+              - entity: sensor.netzentgelt_leistungspreis_monat_geschatzt
+                name: Leistungspreis (Schätzung)
+              - entity: sensor.netzentgelt_lastprofil
+                name: Spitze um
+              - entity: sensor.netzentgelt_tarifzeitfenster
+                name: Tarifzeitfenster
+            grid_options:
+              columns: full
+      - type: grid
+        cards:
+          - type: entities
+            title: Tarif (Richtwerte)
+            entities:
+              - entity: number.netzentgelt_leistungspreis_stufe_1
+                name: Preis bis Staffelgrenze
+              - entity: number.netzentgelt_leistungspreis_stufe_2
+                name: Preis darüber
+              - entity: number.netzentgelt_staffelgrenze
+                name: Staffelgrenze
+              - entity: number.netzentgelt_vereinbarte_leistung
+                name: Vereinbarte Leistung
+            grid_options:
+              columns: full
+      - type: grid
+        column_span: 3
+        cards:
+          # --- (i) Heute: 96 Viertelstunden, Ziel, Staffelgrenze, Monatsspitze ---
+          # Zeitumstellung: graph_span ist eine feste Dauer (24 h ab Mitternacht).
+          # Am letzten Oktobersonntag (25-h-Tag) endet das Fenster um 23:00 — die
+          # Säulen 23:00–23:45 fehlen dann in der Grafik (die Werte selbst sind im
+          # Attribut today_kw vollständig); am letzten Märzsonntag (23-h-Tag) bleibt
+          # am Ende eine leere Stunde. Wer das nicht will: graph_span: 25h (dafür an
+          # allen anderen Tagen eine leere Stunde nach Mitternacht).
+          - type: custom:apexcharts-card
+            graph_span: 24h
+            span:
+              start: day
+            header:
+              show: true
+              title: Heute – Viertelstunden
+              show_states: true
+              colorize_states: true
+            experimental:
+              color_threshold: true
+            yaxis:
+              - min: 0
+                max: ~12
+                decimals: 1
             apex_config:
-              title:
-                text: kW
-          - id: eur
-            opposite: true
-            min: 0
-            decimals: 0
+              chart:
+                height: 320
+              tooltip:
+                x:
+                  format: HH:mm
+            series:
+              - entity: sensor.netzentgelt_lastprofil
+                name: Viertelstunde
+                type: column
+                unit: kW
+                float_precision: 2
+                show:
+                  in_header: false
+                  legend_value: false
+                # Farbe je Säule: grün < Ziel − 1, gelb bis Ziel, rot darüber (für Ziel 10 kW)
+                color_threshold:
+                  - value: 0
+                    color: "#43a047"
+                  - value: 9
+                    color: "#fbc02d"
+                  - value: 10
+                    color: "#e53935"
+                # Slot i = Viertelstunde ab i × 15 min nach Mitternacht (Wanduhrzeit,
+                # damit Tage mit Zeitumstellung stimmen); null = fehlend/ungültig.
+                data_generator: |
+                  const values = entity.attributes.today_kw || [];
+                  const day = moment().startOf('day');
+                  return values.map((kw, slot) => [
+                    day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
+                    kw,
+                  ]);
+              - entity: number.netzentgelt_ziel_leistung
+                name: Ziel
+                type: line
+                curve: stepline
+                stroke_width: 2
+                stroke_dash: 6
+                color: "#1e88e5"
+                unit: kW
+                float_precision: 1
+                data_generator: |
+                  const kw = Number(entity.state);
+                  return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
+              - entity: number.netzentgelt_staffelgrenze
+                name: Staffelgrenze
+                type: line
+                curve: stepline
+                stroke_width: 1
+                stroke_dash: 2
+                color: "#757575"
+                unit: kW
+                float_precision: 1
+                data_generator: |
+                  const kw = Number(entity.state);
+                  return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
+              - entity: sensor.netzentgelt_monatsspitze
+                name: Monatsspitze
+                type: line
+                curve: stepline
+                stroke_width: 2
+                color: "#8e24aa"
+                unit: kW
+                float_precision: 2
+                data_generator: |
+                  const kw = Number(entity.state);
+                  return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
+            grid_options:
+              columns: full
+      - type: grid
+        column_span: 3
+        cards:
+          # --- (ii) Wann entstehen deine Spitzen? Monatsprofil über den Tag ---
+          # Säulen: höchste Viertelstunde je Uhrzeit im laufenden Monat, Linie: Mittel.
+          # Bänder: Tarifzeitfenster laut Verordnungsentwurf — SNAP 10–16 Uhr gilt nur
+          # 1.4.–30.9., WiNAP 22–04 Uhr nur 1.10.–31.3. Der Einfachheit halber sind
+          # beide immer eingezeichnet (feste Uhrzeiten des heutigen Tages).
+          - type: custom:apexcharts-card
+            graph_span: 24h
+            span:
+              start: day
+            header:
+              show: true
+              title: Wann entstehen deine Spitzen? (dieser Monat)
+            yaxis:
+              - min: 0
+                decimals: 1
             apex_config:
-              title:
-                text: € / Monat
-        apex_config:
-          tooltip:
-            x:
-              format: MMM yyyy
-        series:
-          - entity: sensor.netzentgelt_monatsspitze
-            name: Monatsspitze
-            type: column
-            yaxis_id: kw
-            unit: kW
-            float_precision: 2
-            show:
-              in_header: false
-            color_threshold:
-              - value: 0
-                color: "#43a047"
-              - value: 10
+              chart:
+                height: 320
+              tooltip:
+                x:
+                  format: HH:mm
+              annotations:
+                xaxis:
+                  - x: "EVAL:new Date().setHours(10, 0, 0, 0)"
+                    x2: "EVAL:new Date().setHours(16, 0, 0, 0)"
+                    fillColor: "#fdd835"
+                    opacity: 0.15
+                    label:
+                      text: SNAP (Apr–Sep)
+                      borderColor: "#fbc02d"
+                  - x: "EVAL:new Date().setHours(0, 0, 0, 0)"
+                    x2: "EVAL:new Date().setHours(4, 0, 0, 0)"
+                    fillColor: "#5c6bc0"
+                    opacity: 0.15
+                    label:
+                      text: WiNAP (Okt–Mär)
+                      borderColor: "#5c6bc0"
+                  - x: "EVAL:new Date().setHours(22, 0, 0, 0)"
+                    x2: "EVAL:new Date().setHours(24, 0, 0, 0)"
+                    fillColor: "#5c6bc0"
+                    opacity: 0.15
+                    label:
+                      text: WiNAP
+                      borderColor: "#5c6bc0"
+            series:
+              - entity: sensor.netzentgelt_lastprofil
+                name: Höchste Viertelstunde
+                show:
+                  legend_value: false
+                type: column
                 color: "#e53935"
-            data_generator: |
-              const history = entity.attributes.history || {};
-              return Object.keys(history).sort().map((month) => [
-                moment(month + '-15', 'YYYY-MM-DD').valueOf(),
-                history[month].peak_kw,
-              ]);
-          - entity: sensor.netzentgelt_monatsspitze
-            name: Leistungspreis
-            type: line
-            curve: straight
-            stroke_width: 2
-            color: "#8e24aa"
-            yaxis_id: eur
-            unit: €
-            float_precision: 2
-            extend_to: false
-            show:
-              in_header: false
-            data_generator: |
-              const history = entity.attributes.history || {};
-              return Object.keys(history).sort().map((month) => [
-                moment(month + '-15', 'YYYY-MM-DD').valueOf(),
-                history[month].capacity_cost_eur,
-              ]);
+                opacity: 0.8
+                unit: kW
+                float_precision: 2
+                data_generator: |
+                  const values = entity.attributes.month_max_kw || [];
+                  const day = moment().startOf('day');
+                  return values.map((kw, slot) => [
+                    day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
+                    kw,
+                  ]);
+              - entity: sensor.netzentgelt_lastprofil
+                name: Mittel
+                show:
+                  legend_value: false
+                type: line
+                curve: smooth
+                stroke_width: 2
+                color: "#1e88e5"
+                unit: kW
+                float_precision: 2
+                extend_to: false
+                data_generator: |
+                  const values = entity.attributes.month_avg_kw || [];
+                  const day = moment().startOf('day');
+                  return values.map((kw, slot) => [
+                    day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
+                    kw,
+                  ]);
+              - entity: number.netzentgelt_ziel_leistung
+                name: Ziel
+                type: line
+                curve: stepline
+                stroke_width: 2
+                stroke_dash: 6
+                color: "#43a047"
+                unit: kW
+                float_precision: 1
+                data_generator: |
+                  const kw = Number(entity.state);
+                  return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
+            grid_options:
+              columns: full
+      - type: grid
+        column_span: 3
+        cards:
+          # --- (iii) Monatsspitzen der letzten 36 Monate + Leistungspreis ---
+          # Säulen grün bis 10 kW (Stufe 1), rot darüber (Stufe 2; 10 kW ist die im
+          # Entwurf festgelegte Staffelgrenze für Netzebene 7). Linie: geschätzter
+          # Leistungspreis je Monat, mit den AKTUELLEN Preiseinstellungen gerechnet.
+          # Importierte Monate (Portal-Export) erscheinen genauso.
+          # Wenige Daten? graph_span z. B. auf 365d verkürzen.
+          - type: custom:apexcharts-card
+            graph_span: 1096d
+            span:
+              end: month
+            header:
+              show: true
+              title: Monatsspitzen und Leistungspreis
+            experimental:
+              color_threshold: true
+            yaxis:
+              - id: kw
+                min: 0
+                decimals: 1
+                apex_config:
+                  title:
+                    text: kW
+              - id: eur
+                opposite: true
+                min: 0
+                decimals: 0
+                apex_config:
+                  title:
+                    text: € / Monat
+            apex_config:
+              chart:
+                height: 320
+              tooltip:
+                x:
+                  format: MMM yyyy
+            series:
+              - entity: sensor.netzentgelt_monatsspitze
+                name: Monatsspitze
+                type: column
+                yaxis_id: kw
+                unit: kW
+                float_precision: 2
+                show:
+                  in_header: false
+                  legend_value: false
+                color_threshold:
+                  - value: 0
+                    color: "#43a047"
+                  - value: 10
+                    color: "#e53935"
+                data_generator: |
+                  const history = entity.attributes.history || {};
+                  return Object.keys(history).sort().map((month) => [
+                    moment(month + '-15', 'YYYY-MM-DD').valueOf(),
+                    history[month].peak_kw,
+                  ]);
+              - entity: sensor.netzentgelt_monatsspitze
+                name: Leistungspreis
+                type: line
+                curve: straight
+                stroke_width: 2
+                color: "#8e24aa"
+                yaxis_id: eur
+                unit: €
+                float_precision: 2
+                extend_to: false
+                show:
+                  in_header: false
+                  legend_value: false
+                data_generator: |
+                  const history = entity.attributes.history || {};
+                  return Object.keys(history).sort().map((month) => [
+                    moment(month + '-15', 'YYYY-MM-DD').valueOf(),
+                    history[month].capacity_cost_eur,
+                  ]);
+            grid_options:
+              columns: full
