@@ -22,6 +22,12 @@ views:
       - type: entities
         title: Jetzt
         entities:
+          # Ziel per Schieberegler (2–30 kW) — wirkt sofort, ohne Neuladen
+          - entity: number.netzentgelt_ziel_leistung
+            name: Ziel-Leistung
+          # Freigabe für Peak-Shaving-Automationen/Blueprints (die Integration schaltet nichts)
+          - entity: switch.netzentgelt_peak_shaving_aktiv
+            name: Peak-Shaving aktiv
           - entity: binary_sensor.netzentgelt_spitze_droht
             name: Spitze droht
           - entity: sensor.netzentgelt_spielraum
@@ -54,6 +60,8 @@ views:
             name: Verrechnete Leistung
           - entity: sensor.netzentgelt_leistungspreis_monat_geschatzt
             name: Leistungspreis (Schätzung)
+          - entity: sensor.netzentgelt_lastprofil
+            name: Spitze um
 
       - type: history-graph
         title: 15-Min-Leistung und Prognose (24 h)
@@ -78,23 +86,5 @@ views:
           Näherung nach dem **Entwurf** der SNE-G-V. Preise sind Richtwerte,
           maßgeblich ist der Zähler des Netzbetreibers.
 
-# Optional mit der HACS-Karte "apexcharts-card" — Balken je Viertelstunde:
-#
-#      - type: custom:apexcharts-card
-#        header:
-#          show: true
-#          title: 15-Min-Leistung (heute)
-#        graph_span: 24h
-#        span:
-#          start: day
-#        yaxis:
-#          - min: 0
-#        series:
-#          - entity: sensor.netzentgelt_15_min_leistung
-#            type: column
-#            group_by:
-#              func: last
-#              duration: 15min
-#          - entity: sensor.netzentgelt_monatsspitze
-#            type: line
-#            curve: stepline
+# Grafiken (Tagesverlauf, Monatsprofil, Monatsspitzen) mit der HACS-Karte
+# „apexcharts-card“: siehe examples/dashboard-apexcharts.yaml.

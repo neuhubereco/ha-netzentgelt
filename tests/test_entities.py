@@ -25,6 +25,27 @@ from .test_init import _entity_id, _setup, _state
 
 VIENNA = dt_util.get_time_zone("Europe/Vienna")
 
+# Entity-IDs bei Gerätename „Netzentgelt“ und Systemsprache Deutsch (README, Dashboards)
+GERMAN_IDS = {
+    "quarter_power": "sensor.netzentgelt_15_min_leistung",
+    "forecast": "sensor.netzentgelt_prognose_viertelstunde",
+    "month_peak": "sensor.netzentgelt_monatsspitze",
+    "billed_power": "sensor.netzentgelt_verrechnete_leistung",
+    "capacity_cost_month": "sensor.netzentgelt_leistungspreis_monat_geschatzt",
+    "headroom": "sensor.netzentgelt_spielraum",
+    "load_profile": "sensor.netzentgelt_lastprofil",
+    "tariff_window": "sensor.netzentgelt_tarifzeitfenster",
+    "peak_imminent": "binary_sensor.netzentgelt_spitze_droht",
+    "peak_shaving": "switch.netzentgelt_peak_shaving_aktiv",
+    "target_kw": "number.netzentgelt_ziel_leistung",
+    "tier_limit_kw": "number.netzentgelt_staffelgrenze",
+    "agreed_kw": "number.netzentgelt_vereinbarte_leistung",
+    "minimum_kw": "number.netzentgelt_mindestleistung",
+    "price_tier1": "number.netzentgelt_leistungspreis_stufe_1",
+    "price_tier2": "number.netzentgelt_leistungspreis_stufe_2",
+    "hysteresis_kw": "number.netzentgelt_hysterese",
+}
+
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
@@ -47,25 +68,7 @@ async def test_entity_ids_in_german(hass: HomeAssistant, freezer: FrozenDateTime
         e.unique_id.removeprefix(f"{entry.entry_id}_"): e.entity_id
         for e in er.async_entries_for_config_entry(registry, entry.entry_id)
     }
-    assert ids == {
-        "quarter_power": "sensor.netzentgelt_15_min_leistung",
-        "forecast": "sensor.netzentgelt_prognose_viertelstunde",
-        "month_peak": "sensor.netzentgelt_monatsspitze",
-        "billed_power": "sensor.netzentgelt_verrechnete_leistung",
-        "capacity_cost_month": "sensor.netzentgelt_leistungspreis_monat_geschatzt",
-        "headroom": "sensor.netzentgelt_spielraum",
-        "load_profile": "sensor.netzentgelt_lastprofil",
-        "tariff_window": "sensor.netzentgelt_tarifzeitfenster",
-        "peak_imminent": "binary_sensor.netzentgelt_spitze_droht",
-        "peak_shaving": "switch.netzentgelt_peak_shaving_aktiv",
-        "target_kw": "number.netzentgelt_ziel_leistung",
-        "tier_limit_kw": "number.netzentgelt_staffelgrenze",
-        "agreed_kw": "number.netzentgelt_vereinbarte_leistung",
-        "minimum_kw": "number.netzentgelt_mindestleistung",
-        "price_tier1": "number.netzentgelt_leistungspreis_stufe_1",
-        "price_tier2": "number.netzentgelt_leistungspreis_stufe_2",
-        "hysteresis_kw": "number.netzentgelt_hysterese",
-    }
+    assert ids == GERMAN_IDS
     # Ziel-Leistung prominent, übrige Einstellungen in der Kategorie Konfiguration
     assert registry.async_get("number.netzentgelt_ziel_leistung").entity_category is None
     assert registry.async_get("number.netzentgelt_hysterese").entity_category == "config"
