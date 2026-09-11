@@ -23,9 +23,13 @@ views:
         title: Jetzt
         entities:
           - entity: binary_sensor.netzentgelt_spitze_droht
+            name: Spitze droht
           - entity: sensor.netzentgelt_spielraum
+            name: Spielraum bis zum Ziel
           - entity: sensor.netzentgelt_15_min_leistung
+            name: Letzte Viertelstunde
           - entity: sensor.netzentgelt_tarifzeitfenster
+            name: Tarifzeitfenster
           - type: attribute
             entity: sensor.netzentgelt_tarifzeitfenster
             attribute: window_end
@@ -36,6 +40,7 @@ views:
         title: Dieser Monat
         entities:
           - entity: sensor.netzentgelt_monatsspitze
+            name: Monatsspitze
           - type: attribute
             entity: sensor.netzentgelt_monatsspitze
             attribute: peak_quarter_start
@@ -46,7 +51,9 @@ views:
             attribute: invalid_quarters_month
             name: Ungültige Viertelstunden
           - entity: sensor.netzentgelt_verrechnete_leistung
+            name: Verrechnete Leistung
           - entity: sensor.netzentgelt_leistungspreis_monat_geschatzt
+            name: Leistungspreis (Schätzung)
 
       - type: history-graph
         title: 15-Min-Leistung und Prognose (24 h)

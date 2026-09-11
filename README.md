@@ -29,6 +29,16 @@ Leistungspreis und liefert mit **Prognose** und **Spielraum** die Grundlage für
 Eine einzige Viertelstunde mit Wallbox + Herd + Wärmepumpe bestimmt also den Preis für den ganzen
 Monat — genau hier setzt Peak-Shaving an.
 
+## So sieht es aus
+
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png" alt="Beispiel-Dashboard: Prognose der laufenden Viertelstunde als Tacho, darunter Spielraum, letzte Viertelstunde und Tarifzeitfenster; rechts Monatsspitze, verrechnete Leistung und geschätzter Leistungspreis" width="650">
+
+*Beispiel-Dashboard aus [`examples/dashboard.yaml`](examples/dashboard.yaml), echte Werte eines Haushalts.*
+
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png" alt="Geräteseite der Integration in Home Assistant mit allen Sensoren" width="800">
+
+*Geräteseite nach der Einrichtung: acht Entities, mit eigenem Icon (HA ≥ 2026.3).*
+
 ## Was du brauchst
 
 1. **Home Assistant 2026.3 oder neuer** (für die Installation über HACS zusätzlich HACS).
@@ -297,6 +307,7 @@ clock-aligned 15-minute average grid import power per calendar month is billed (
 capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00, WiNAP 1 Oct–31 Mar
 22:00–04:00 (a night belongs to the day it starts on).
 
+- **Screenshots:** [dashboard](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png), [device page](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png).
 - **Requirements:** Home Assistant ≥ 2026.3 and a frequently updated **grid import** energy sensor
   at the connection point. Best source: the smart meter's local customer interface
   (“Kundenschnittstelle”, optical or M-Bus; usually must be enabled by the grid operator, data is
