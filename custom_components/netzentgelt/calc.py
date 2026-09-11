@@ -1631,17 +1631,18 @@ def _check_comma_decimals(header: list[str] | None, data_rows: list[tuple[int, l
     vielen Zellen je Zeile, oder (ohne Kopfzeile) nur ganzen Zahlen in
     mindestens zwei Spalten nach der Zeitspalte.
     """
-    widths = {_width(cells) for _col, cells, _ts in data_rows}
+    # Zeilen ganz ohne Wert (fehlender Messwert) sagen nichts über die Zellenzahl
+    with_values = [(col, cells) for col, cells, _ts in data_rows if _width(cells) > col + 1]
+    if not with_values:
+        return
+    widths = {_width(cells) for _col, cells in with_values}
     if header is not None:
         if max(widths) > _width(header):
             raise LoadProfileError("decimal_comma_ambiguous")
         return
     if len(widths) > 1:
         raise LoadProfileError("decimal_comma_ambiguous")
-    split_like = [
-        [cell for cell in cells[col + 1 :] if cell]
-        for col, cells, _ts in data_rows[:_DETECT_ROWS]
-    ]
+    split_like = [[cell for cell in cells[col + 1 :] if cell] for col, cells in with_values[:_DETECT_ROWS]]
     if all(len(values) >= 2 and all(_INTEGER.fullmatch(v) for v in values) for values in split_like):
         raise LoadProfileError("decimal_comma_ambiguous")
 

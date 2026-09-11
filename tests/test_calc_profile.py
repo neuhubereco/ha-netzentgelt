@@ -520,6 +520,9 @@ def test_parse_comma_file_with_unquoted_decimal_commas_is_rejected(text: str) ->
 def test_parse_comma_file_with_quoted_decimal_commas_or_points_is_fine() -> None:
     quoted = 'Zeit,kW\n2026-08-01 00:00,"0,5"\n2026-08-01 00:15,"1,25",\n'
     assert calc.parse_load_profile(quoted, VIENNA).quarters[utc(2026, 7, 31, 22, 15)] == pytest.approx(1.25)
+    missing = "2026-08-01 00:00,\n2026-08-01 00:15,0.5\n2026-08-01 00:30,1\n"  # Zeile ohne Wert
+    profile = calc.parse_load_profile(missing, VIENNA)
+    assert profile.rows == 2 and profile.rows_skipped == 1
     points = "2026-08-01 00:00,0.125,0.5\n2026-08-01 00:15,0.25,1.0\n"
     profile = calc.parse_load_profile(points, VIENNA)
     assert profile.value_column_source == "detected"
