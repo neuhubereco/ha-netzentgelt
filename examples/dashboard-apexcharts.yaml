@@ -118,6 +118,12 @@ views:
                 color: "#43a047"
 
       # --- (i) Heute: 96 Viertelstunden, Ziel, Staffelgrenze, Monatsspitze ---
+      # Zeitumstellung: graph_span ist eine feste Dauer (24 h ab Mitternacht).
+      # Am letzten Oktobersonntag (25-h-Tag) endet das Fenster um 23:00 — die
+      # Säulen 23:00–23:45 fehlen dann in der Grafik (die Werte selbst sind im
+      # Attribut today_kw vollständig); am letzten Märzsonntag (23-h-Tag) bleibt
+      # am Ende eine leere Stunde. Wer das nicht will: graph_span: 25h (dafür an
+      # allen anderen Tagen eine leere Stunde nach Mitternacht).
       - type: custom:apexcharts-card
         graph_span: 24h
         span:
