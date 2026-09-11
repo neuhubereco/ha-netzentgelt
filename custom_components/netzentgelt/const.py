@@ -42,6 +42,12 @@ DEFAULT_OPTIONS: Final[dict[str, float]] = {
     CONF_HYSTERESIS_KW: 0.2,
 }
 
+# Bereich der Ziel-Leistung (Options-Flow und Number-Entity). Obergrenze des
+# Schiebereglers ist die Plausibilitätsgrenze (höchstens TARGET_MAX_KW) — ein
+# Ziel darüber lehnt die Validierung ohnehin ab.
+TARGET_MIN_KW: Final = 0.5
+TARGET_MAX_KW: Final = 1000.0
+
 # Reine Wert-Optionen: Änderung wird live übernommen, ohne die Integration neu
 # zu laden (ein Neuladen würde die laufende Viertelstunde ungültig machen).
 # Alles andere (Quell-Sensoren, Plausibilitätsgrenze, Titel) lädt neu.

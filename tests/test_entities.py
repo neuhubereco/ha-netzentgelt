@@ -19,7 +19,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import mock_restore_cache
 
-from custom_components.netzentgelt.const import CONF_HYSTERESIS_KW, CONF_PRICE_TIER1, CONF_TARGET_KW
+from custom_components.netzentgelt.const import (
+    CONF_HYSTERESIS_KW,
+    CONF_PLAUSIBILITY_KW,
+    CONF_PRICE_TIER1,
+    CONF_TARGET_KW,
+)
 
 from .test_init import _entity_id, _setup, _state
 
@@ -73,7 +78,8 @@ async def test_entity_ids_in_german(hass: HomeAssistant, freezer: FrozenDateTime
     assert registry.async_get("number.netzentgelt_ziel_leistung").entity_category is None
     assert registry.async_get("number.netzentgelt_hysterese").entity_category == "config"
     target = hass.states.get("number.netzentgelt_ziel_leistung")
-    assert target.attributes["min"] == 2 and target.attributes["max"] == 30
+    # Bereich wie im Options-Flow: 0,5 kW bis zur Plausibilitätsgrenze (Standard 60 kW)
+    assert target.attributes["min"] == 0.5 and target.attributes["max"] == 60
     assert target.attributes["step"] == 0.1 and target.attributes["mode"] == "slider"
 
 
@@ -114,9 +120,32 @@ async def test_number_rejects_hysteresis_not_below_target(
         await _set_number(hass, _entity_id(hass, entry, "number", CONF_HYSTERESIS_KW), 10.0)
     assert err.value.translation_key == "hysteresis_too_large"
     assert entry.options[CONF_HYSTERESIS_KW] == 0.2
-    # Slider-Grenzen: unter 2 kW lehnt die Number-Plattform selbst ab
+    # Slider-Grenzen = Options-Bereich: 0,5 kW bis Plausibilitätsgrenze (60 kW)
+    target_id = _entity_id(hass, entry, "number", CONF_TARGET_KW)
     with pytest.raises(ServiceValidationError):
-        await _set_number(hass, _entity_id(hass, entry, "number", CONF_TARGET_KW), 1.0)
+        await _set_number(hass, target_id, 0.4)
+    with pytest.raises(ServiceValidationError):
+        await _set_number(hass, target_id, 61.0)
+    await _set_number(hass, target_id, 45.0)  # früher auf 30 kW begrenzt
+    assert entry.options[CONF_TARGET_KW] == 45.0
+    await _set_number(hass, target_id, 1.0)
+    assert entry.options[CONF_TARGET_KW] == 1.0
+
+
+async def test_target_slider_follows_plausibility_option(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+) -> None:
+    """Ziel 80 kW im Options-Flow (Plausibilität 150) ist auch am Schieberegler einstellbar."""
+    entry, _ = await _setup(hass, freezer, datetime(2026, 9, 11, 9, 56, tzinfo=VIENNA))
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, CONF_PLAUSIBILITY_KW: 150.0, CONF_TARGET_KW: 80.0}
+    )
+    await hass.async_block_till_done()  # Plausibilität ist strukturell → Neuladen
+    target_id = _entity_id(hass, entry, "number", CONF_TARGET_KW)
+    state = hass.states.get(target_id)
+    assert float(state.state) == 80.0 and state.attributes["max"] == 150
+    await _set_number(hass, target_id, 120.0)
+    assert entry.options[CONF_TARGET_KW] == 120.0
 
 
 async def test_peak_shaving_switch_defaults_off(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:

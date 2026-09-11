@@ -49,6 +49,8 @@ from .const import (
     ENERGY_STATE_CLASSES,
     ENERGY_UNITS,
     POWER_UNITS,
+    TARGET_MAX_KW,
+    TARGET_MIN_KW,
 )
 
 ATTR_STATE_CLASS = "state_class"
@@ -157,7 +159,7 @@ def _number(
 
 
 OPTION_FIELDS: dict[str, NumberSelector] = {
-    CONF_TARGET_KW: _number(0.5, 1000, 0.1, "kW"),
+    CONF_TARGET_KW: _number(TARGET_MIN_KW, TARGET_MAX_KW, 0.1, "kW"),
     CONF_TIER_LIMIT_KW: _number(0, 1000, 0.1, "kW"),
     CONF_AGREED_KW: _number(0, 1000, 0.1, "kW"),
     CONF_MINIMUM_KW: _number(0, 1000, 0.1, "kW"),

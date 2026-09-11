@@ -49,7 +49,7 @@ gebaut hat, braucht davon nichts mehr:
 
 | Bisher im YAML-Paket | Mit der Integration |
 |---|---|
-| `input_number` für die kW-Grenze im Dashboard | `number.netzentgelt_ziel_leistung` — Schieberegler 2–30 kW, wirkt sofort, ohne Neuladen |
+| `input_number` für die kW-Grenze im Dashboard | `number.netzentgelt_ziel_leistung` — Schieberegler (0,5 kW bis zur Plausibilitätsgrenze, Standard 60 kW), wirkt sofort, ohne Neuladen |
 | `input_boolean` „Peak-Shaving an/aus“ | `switch.netzentgelt_peak_shaving_aktiv` — Freigabe für Automationen, übersteht Neustarts |
 | Template-Sensoren für Viertelstunde und Monatsspitze | 15-Min-Leistung und Monatsspitze mit Interpolation an der Grenze und Ungültig-Erkennung bei Messlücken |
 | Monatsspitze nur für den laufenden Monat | Verlauf über 36 Monate mit verrechneter Leistung, Leistungspreis und Herkunft (gemessen/importiert) |
@@ -183,7 +183,7 @@ Entity-IDs entstehen aus Gerätename und Entity-Name in der Systemsprache (Beisp
 | Spitze droht | `binary_sensor.netzentgelt_spitze_droht` | ein, wenn Prognose > Ziel; aus erst unter Ziel − Hysterese |
 | Lastprofil | `sensor.netzentgelt_lastprofil` | Uhrzeit (HH:MM) der Viertelstunde mit der Monatsspitze. Attribute (nicht im Recorder): `today_kw`, `yesterday_kw` (je 96 Werte, Index = Viertelstunde des Tages, `null` = fehlend/ungültig), `month_max_kw`, `month_avg_kw` (höchster bzw. mittlerer Wert je Uhrzeit im laufenden Monat), `labels` (96 × `HH:MM`), `month` |
 | Peak-Shaving aktiv | `switch.netzentgelt_peak_shaving_aktiv` | Freigabe für Automationen und Blueprints (Standard: aus, Zustand übersteht Neustarts). Die Integration selbst schaltet nichts |
-| Ziel-Leistung | `number.netzentgelt_ziel_leistung` | Schieberegler 2–30 kW, Schritt 0,1 |
+| Ziel-Leistung | `number.netzentgelt_ziel_leistung` | Schieberegler 0,5 kW bis Plausibilitätsgrenze (Standard 60 kW), Schritt 0,1 |
 | Einstellungen | `number.netzentgelt_staffelgrenze`, `…_vereinbarte_leistung`, `…_mindestleistung`, `…_leistungspreis_stufe_1`, `…_leistungspreis_stufe_2`, `…_hysterese` | Kategorie „Konfiguration“ auf der Geräteseite; dieselben Werte wie im Options-Dialog |
 
 Spielraum = ((Ziel / 4 − verbraucht_kWh) / Rest_h) − P_jetzt; die Restzeit wird auf mindestens
@@ -447,7 +447,7 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 
 ### 0.2.0
 
-- **Einstellungen als Entities:** Ziel-Leistung (Schieberegler 2–30 kW), Staffelgrenze,
+- **Einstellungen als Entities:** Ziel-Leistung (Schieberegler 0,5 kW bis Plausibilitätsgrenze), Staffelgrenze,
   vereinbarte Leistung, Mindestleistung, Leistungspreis Stufe 1/2, Hysterese. Einzige Quelle
   bleiben die Optionen des Eintrags; Wert-Änderungen wirken sofort **ohne Neuladen** (die laufende
   Viertelstunde bleibt gültig). Auch der Options-Dialog lädt bei Wert-Änderungen nicht mehr neu.
@@ -503,7 +503,7 @@ capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00,
   “peak imminent”, **load profile** (state = time of the monthly peak; attributes: 96 quarter-hour
   values for today/yesterday, monthly maximum/average per time of day, DST-safe), **switch
   “peak shaving active”** (master enable for automations, restored after restart), **target power
-  slider** (2–30 kW) and settings for tier limit, agreed capacity, minimum, prices, hysteresis.
+  slider** (0.5 kW up to the plausibility limit, default 60 kW) and settings for tier limit, agreed capacity, minimum, prices, hysteresis.
 - **What it replaces:** the usual YAML package (input_number for the kW limit, input_boolean for
   on/off, template sensors, own automations, history-based charts).
 - **Import your grid operator's portal export:** action `netzentgelt.import_load_profile`

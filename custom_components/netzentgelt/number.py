@@ -30,6 +30,8 @@ from .const import (
     CONF_TARGET_KW,
     CONF_TIER_LIMIT_KW,
     DOMAIN,
+    TARGET_MAX_KW,
+    TARGET_MIN_KW,
 )
 from .coordinator import NetzentgeltConfigEntry
 from .entity import NetzentgeltEntity
@@ -75,8 +77,8 @@ NUMBERS: tuple[NetzentgeltNumberDescription, ...] = (
     NetzentgeltNumberDescription(
         key=CONF_TARGET_KW,
         translation_key=CONF_TARGET_KW,
-        native_min_value=2,
-        native_max_value=30,
+        native_min_value=TARGET_MIN_KW,
+        native_max_value=TARGET_MAX_KW,  # tatsächlich: Plausibilitätsgrenze, siehe native_max_value
         native_step=0.1,
         native_unit_of_measurement=UnitOfPower.KILO_WATT,
         device_class=NumberDeviceClass.POWER,
@@ -104,6 +106,13 @@ class NetzentgeltNumber(NetzentgeltEntity, NumberEntity):
     """Wert aus den Optionen; Schreiben aktualisiert die Optionen."""
 
     entity_description: NetzentgeltNumberDescription
+
+    @property
+    def native_max_value(self) -> float:
+        """Ziel-Leistung: bis zur Plausibilitätsgrenze (wie im Options-Flow validiert)."""
+        if self.entity_description.key == CONF_TARGET_KW:
+            return min(float(self.coordinator.options[CONF_PLAUSIBILITY_KW]), TARGET_MAX_KW)
+        return super().native_max_value
 
     @property
     def native_value(self) -> float:
