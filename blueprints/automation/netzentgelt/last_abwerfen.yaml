@@ -12,6 +12,13 @@ blueprint:
     Läuft nur, solange Peak-Shaving aktiv ist. Wird Home Assistant während der
     Wartezeit neu gestartet, bleiben die Lasten aus (bitte dann von Hand
     einschalten). Wärmepumpen besser drosseln als hart abschalten.
+
+
+    **Geschützte Last (optional):** Manche Verbraucher will man nicht abwerfen,
+    sondern *wegen* ihnen abwerfen — die Sauna, der Herd, der Backofen. Trägst du
+    sie unten als geschützte Last ein, werfen die anderen Lasten ab, sobald sie
+    anläuft, und kommen erst zurück, wenn sie fertig ist. Ein 9-kW-Saunaofen
+    reißt ein 10-kW-Ziel sonst im Alleingang.
   domain: automation
   source_url: https://github.com/neuhubereco/ha-netzentgelt/blob/main/blueprints/automation/netzentgelt/last_abwerfen.yaml
   homeassistant:
@@ -41,6 +48,22 @@ blueprint:
           multiple: true
           filter:
             - domain:
+                - switch
+                - input_boolean
+    protected_loads:
+      name: Geschützte Last (optional)
+      description: >-
+        Läuft eine davon, werden die Lasten oben abgeworfen — und bleiben aus,
+        bis sie fertig ist. Sinnvoll für alles, was man nicht unterbrechen will
+        (Sauna, Herd, Backofen). Ein Binärsensor genügt; bei der Sauna ohne
+        eigenen Zähler zum Beispiel einer, der sie an der Restlast erkennt.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain:
+                - binary_sensor
                 - switch
                 - input_boolean
     wait_minutes:
@@ -82,6 +105,7 @@ max_exceeded: silent
 
 variables:
   load_entities: !input loads
+  protected_loads: !input protected_loads
   restore_at_quarter: !input restore_at_quarter
   imminent_entity: !input peak_imminent
   switch_entity: !input peak_shaving_switch
@@ -90,6 +114,11 @@ variables:
 triggers:
   - trigger: state
     entity_id: !input peak_imminent
+    to: "on"
+  # Die geschützte Last läuft an — die anderen weichen, ohne auf eine drohende
+  # Spitze zu warten (bei 9 kW kommt die sonst erst, wenn sie schon da ist).
+  - trigger: state
+    entity_id: !input protected_loads
     to: "on"
 
 conditions:
@@ -107,9 +136,12 @@ actions:
     target:
       entity_id: "{{ switched_off }}"
   - wait_for_trigger:
-      - trigger: state
-        entity_id: !input peak_imminent
-        to: "off"
+      # Vorbei heißt: keine drohende Spitze UND die geschützte Last ist fertig.
+      # Ohne geschützte Last ist das genau der alte Zustandswechsel auf „off“.
+      - trigger: template
+        value_template: >-
+          {{ is_state(imminent_entity, 'off')
+             and protected_loads | select('is_state', 'on') | list | count == 0 }}
         for:
           minutes: !input wait_minutes
         id: ended
@@ -126,7 +158,8 @@ actions:
       # Erste Minute einer Viertelstunde ohne drohende Spitze; sofort bei
       # Ausschalten von Peak-Shaving; spätestens zur Höchstdauer ab Abschalten.
       - wait_template: >-
-          {{ (now().minute % 15 == 0 and is_state(imminent_entity, 'off'))
+          {{ (now().minute % 15 == 0 and is_state(imminent_entity, 'off')
+              and protected_loads | select('is_state', 'on') | list | count == 0)
              or not is_state(switch_entity, 'on')
              or now().timestamp() >= deadline }}
         timeout:
