@@ -464,6 +464,26 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 
 ## Changelog
 
+### 0.2.1
+
+- **Blueprint „Hausspeicher reservieren" (neu):** Notstrom- und Peak-Reserve im Speicher trennen,
+  die Peak-Reserve nur bei drohender Spitze ausgeben, optional die Netzladung des Speichers
+  währenddessen abschalten.
+- **Blueprint „Lasten abwerfen" kennt eine geschützte Last:** einen Verbraucher, den man nicht
+  unterbrechen will (Sauna, Herd, Backofen). Läuft er, weichen die anderen Lasten sofort statt auf
+  die drohende Spitze zu warten, und kommen erst zurück, wenn er fertig ist. Ein 9-kW-Saunaofen
+  reißt ein 10-kW-Ziel im Alleingang — und wer in der Sauna sitzt, will nicht, dass sie abschaltet.
+- **Spielraum nach oben begrenzt:** In den letzten Sekunden einer Viertelstunde lief
+  `sensor.netzentgelt_spielraum` gegen mehrere hundert kW (gemessen: 291 kW bei 30 s Restzeit und
+  fast leerer Viertelstunde). Rechnerisch richtig, als Anzeige und als Stellgröße unbrauchbar —
+  eine Last, die an der Grenze hochfährt, läuft in die neue Viertelstunde hinein. Gekappt wird
+  jetzt auf die Plausibilitätsgrenze (Standard 60 kW).
+- **Grafik-Dashboard:** „Gestern" zeigte im Kopf des Tagesdiagramms `N/A`, wenn die Viertelstunde
+  23:45 fehlt — behoben. Neu als kommentiertes Beispiel: der eigene **Hausverbrauch** als
+  Vergleichslinie, damit sichtbar ist, dass die Prognose den *Netzbezug* zeigt und PV plus Speicher
+  dazwischen liegen.
+- **Screenshots** im README aktualisiert, dazu das Tagesdiagramm neu aufgenommen.
+
 ### 0.2.0
 
 - **Einstellungen als Entities:** Ziel-Leistung (Schieberegler 0,5 kW bis Plausibilitätsgrenze), Staffelgrenze,
@@ -478,13 +498,6 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 - **Aktion `netzentgelt.import_load_profile`:** Portal-Export (CSV) einlesen, in Verlauf und
   Lastprofil übernehmen, optional Langzeitstatistik für die Zeit vor den eigenen Messwerten.
 - **Blueprints:** Wallbox am Spielraum, Lasten abwerfen, Benachrichtigung.
-- *Nach dem Release 0.2.0 ergänzt:* Blueprint **Hausspeicher reservieren** — Notstrom- und
-  Peak-Reserve im Speicher trennen, Peak-Reserve nur bei drohender Spitze ausgeben, optional die
-  Netzladung des Speichers währenddessen abschalten.
-- *Nach dem Release 0.2.0 ergänzt:* Blueprint **Lasten abwerfen** kennt jetzt eine **geschützte
-  Last** — einen Verbraucher, den man nicht unterbrechen will (Sauna, Herd, Backofen). Läuft er,
-  weichen die anderen Lasten sofort, statt auf die drohende Spitze zu warten, und kommen erst
-  zurück, wenn er fertig ist.
 - **Dashboards:** Ziel-Schieberegler und Schalter im Standard-Dashboard, neues Grafik-Dashboard
   für apexcharts-card: heutige Viertelstunden (mit „Gestern“ zum Vergleich), Monatsprofil mit
   SNAP/WiNAP-Fenstern, Monatsspitzen mit Kostenlinie, Tages-Spitzen der letzten 60 Tage und
