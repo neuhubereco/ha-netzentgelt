@@ -539,6 +539,19 @@ MIT © 2026 Florian Neuhuber — siehe [LICENSE](LICENSE).
 
 ---
 
+## Mitmachen
+
+Direkt ins Repository hochladen können nur Mitwirkende — das ist bei GitHub immer so. Beiträge
+gehen trotzdem, auf zwei Wegen:
+
+- **Pull Request:** Repository forken (Knopf *Fork*), die Datei im eigenen Fork hochladen oder
+  bearbeiten, dann *Contribute → Open pull request*.
+- **Als Anhang in einem Issue:** Neues [Issue](https://github.com/neuhubereco/ha-netzentgelt/issues)
+  öffnen und die Datei ins Textfeld ziehen — `.yaml`-Dateien nimmt GitHub dort an.
+
+Besonders willkommen: **Beispiel-Dashboards für andere Systemsprachen.** Die Entity-IDs entstehen
+aus der Systemsprache beim Anlegen, die Beispiele hier gelten für Deutsch (siehe *Entities*).
+
 ## English summary
 
 **Grid capacity charge Austria** — a Home Assistant custom integration for the capacity-based grid
@@ -548,6 +561,8 @@ clock-aligned 15-minute average grid import power per calendar month is billed (
 capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00, WiNAP 1 Oct–31 Mar
 22:00–04:00 (a night belongs to the day it starts on).
 
+- **Entity IDs follow your system language.** The example dashboards in `examples/` use the IDs of a German installation. On an English installation (device name “Netzentgelt”) the IDs are: `sensor.netzentgelt_15_minute_power`, `sensor.netzentgelt_15_minute_forecast`, `sensor.netzentgelt_monthly_peak`, `sensor.netzentgelt_billed_power`, `sensor.netzentgelt_capacity_charge_month_estimate`, `sensor.netzentgelt_headroom`, `sensor.netzentgelt_tariff_window`, `sensor.netzentgelt_load_profile`, `binary_sensor.netzentgelt_peak_imminent`, `number.netzentgelt_target_power`, `number.netzentgelt_tier_limit`, `number.netzentgelt_agreed_capacity`, `number.netzentgelt_minimum_billed_power`, `number.netzentgelt_capacity_price_tier_1`, `number.netzentgelt_capacity_price_tier_2`, `number.netzentgelt_hysteresis`, `switch.netzentgelt_peak_shaving_active`. Replace them in the example, or better: contribute an English dashboard.
+- **Contributing:** only collaborators can upload to the repository directly (that is how GitHub works). Fork the repo and open a pull request, or open an issue and drag the file into the comment box — GitHub accepts `.yaml` attachments there.
 - **Screenshots:** [dashboard](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png), [peak profile](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/profil.png), [monthly peaks](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/monatsspitzen.png), [device page](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png).
 - **Requirements:** Home Assistant ≥ 2026.3 and a frequently updated **grid import** energy sensor
   at the connection point. Best source: the smart meter's local customer interface
