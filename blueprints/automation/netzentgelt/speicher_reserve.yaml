@@ -1,0 +1,280 @@
+blueprint:
+  name: "Netzentgelt: Hausspeicher für Netzspitzen reservieren"
+  description: >-
+    Hält im Hausspeicher eine **Reserve für Netzspitzen** frei und gibt sie erst
+    dann aus, wenn der Binärsensor **Spitze droht** der Integration *Netzentgelt AT*
+    einschaltet. Dazu wird die Mindestreserve (SoC-Untergrenze) des Wechselrichters
+    umgeschaltet:
+
+
+    * normal: **Notstrom-Reserve + Peak-Reserve** — der Speicher wird z. B. beim
+      Autoladen nicht bis auf den letzten Prozent geleert und hat bei der nächsten
+      Spitze noch etwas übrig.
+
+    * Spitze droht: **nur Notstrom-Reserve** — die Peak-Reserve darf jetzt raus und
+      entlastet die laufende Viertelstunde.
+
+
+    Optional wird während der Spitze die **Netzladung des Speichers** abgeschaltet
+    (sonst lädt er mitten in der Spitze aus dem Netz und macht sie größer) und
+    danach in den vorherigen Zustand zurückgestellt.
+
+
+    **Voraussetzung:** Dein Wechselrichter stellt die Mindestreserve als
+    `number`-Entity bereit (z. B. Fronius GEN24 „Mindestreserve der Batterie“,
+    oder ein eigener Modbus-/Template-`number`). Der Wechselrichter entlädt von
+    selbst, um den Hausverbrauch zu decken — diese Automation entscheidet nur,
+    **bis wohin** er das darf.
+
+
+    **Größenordnung:** Ein Speicher mit 5–6 kW Entladeleistung entlastet eine
+    Viertelstunde um höchstens 1,2–1,5 kWh. Lange Lastspitzen (Autoladen) kappt er
+    nicht — dafür ist ein Lademanagement zuständig. In einem ausgewerteten Haushalt
+    (Lastgang 2024–2026, Ziel 10 kW) waren 62 % aller Überschreitungen kürzer als
+    eine Stunde; 20 % eines 13,8-kWh-Speichers (2,8 kWh) haben davon 93 % abgedeckt.
+  domain: automation
+  source_url: https://github.com/neuhubereco/ha-netzentgelt/blob/main/blueprints/automation/netzentgelt/speicher_reserve.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    peak_imminent:
+      name: Spitze droht
+      description: Binärsensor „Spitze droht“ der Integration.
+      selector:
+        entity:
+          filter:
+            - integration: netzentgelt
+              domain: binary_sensor
+    reserve_number:
+      name: Mindestreserve des Speichers
+      description: >-
+        `number`-Entity für die SoC-Untergrenze des Wechselrichters (in %).
+        Fronius GEN24: „Mindestreserve der Batterie“.
+      selector:
+        entity:
+          filter:
+            - domain: number
+    notstrom_pct:
+      name: Notstrom-Reserve
+      description: >-
+        Dieser Anteil bleibt immer im Speicher, auch während einer Spitze.
+        0 = keine Notstrom-Reserve.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 90
+          step: 5
+          unit_of_measurement: "%"
+          mode: slider
+    peak_pct:
+      name: Peak-Reserve
+      description: >-
+        Dieser Anteil wird für Netzspitzen freigehalten und nur bei drohender
+        Spitze ausgegeben.
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 90
+          step: 5
+          unit_of_measurement: "%"
+          mode: slider
+    peak_shaving_switch:
+      name: Peak-Shaving aktiv (optional)
+      description: >-
+        Schalter „Peak-Shaving aktiv“ der Integration. Ist er aus, setzt die
+        Automation die Mindestreserve auf den Normalwert unten und hält sich heraus.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - integration: netzentgelt
+              domain: switch
+    normal_pct:
+      name: Normalwert ohne Peak-Shaving
+      description: >-
+        Mindestreserve, wenn die Automation nicht eingreift. Werkseinstellung vieler
+        Wechselrichter ist 5 %.
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 90
+          step: 5
+          unit_of_measurement: "%"
+          mode: box
+    grid_charge_switch:
+      name: Netzladung des Speichers (optional)
+      description: >-
+        Schalter, der das Laden des Speichers aus dem Netz erlaubt. Wird bei
+        drohender Spitze ausgeschaltet und danach zurückgestellt.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain:
+                - switch
+    grid_charge_memory:
+      name: Merker für die Netzladung (optional)
+      description: >-
+        `input_boolean`, in dem der vorherige Zustand der Netzladung gespeichert
+        wird. Ohne Merker wird die Netzladung nach der Spitze immer wieder
+        eingeschaltet.
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: input_boolean
+    apply_script:
+      name: Skript nach dem Setzen (optional)
+      description: >-
+        Nur für Wechselrichter, die die Werte per Modbus mit Verfallszeit
+        übernehmen: Dieses Skript wird nach jeder Änderung und im Keepalive
+        aufgerufen (z. B. ein Skript, das die Register neu schreibt).
+      default: []
+      selector:
+        entity:
+          multiple: true
+          filter:
+            - domain: script
+    keepalive_seconds:
+      name: Keepalive
+      description: >-
+        Wie oft der Wert (und das Skript oben) erneut angewandt wird. 0 = nur bei
+        Zustandswechsel. Für Modbus-Steuerungen mit Verfallszeit sinnvoll (z. B. 30).
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 300
+          step: 10
+          unit_of_measurement: s
+          mode: box
+    wait_minutes:
+      name: Wartezeit nach Ende
+      description: So lange muss „Spitze droht“ aus sein, bevor die Peak-Reserve wieder aufgebaut wird.
+      default: 2
+      selector:
+        number:
+          min: 0
+          max: 30
+          step: 1
+          unit_of_measurement: min
+          mode: box
+
+mode: queued
+max: 5
+max_exceeded: silent
+
+variables:
+  peak_imminent: !input peak_imminent
+  reserve_number: !input reserve_number
+  notstrom_pct: !input notstrom_pct
+  peak_pct: !input peak_pct
+  normal_pct: !input normal_pct
+  peak_shaving_switch: !input peak_shaving_switch
+  grid_charge_switch: !input grid_charge_switch
+  grid_charge_memory: !input grid_charge_memory
+  apply_script: !input apply_script
+  # Freigabe: kein Schalter gewählt = immer aktiv, sonst muss er an sein.
+  enabled: >-
+    {{ peak_shaving_switch | length == 0
+       or peak_shaving_switch | select('is_state', 'on') | list | length > 0 }}
+  spitze: "{{ is_state(peak_imminent, 'on') }}"
+  soll: >-
+    {% if not enabled %}
+      {{ normal_pct | float(5) }}
+    {% elif spitze %}
+      {{ notstrom_pct | float(0) }}
+    {% else %}
+      {{ (notstrom_pct | float(0)) + (peak_pct | float(20)) }}
+    {% endif %}
+
+triggers:
+  - trigger: state
+    entity_id: !input peak_imminent
+    to: "on"
+    id: spitze
+  - trigger: state
+    entity_id: !input peak_imminent
+    to: "off"
+    for:
+      minutes: !input wait_minutes
+    id: vorbei
+  - trigger: state
+    entity_id: !input peak_shaving_switch
+    id: freigabe
+  - trigger: homeassistant
+    event: start
+    id: start
+  - trigger: time_pattern
+    seconds: !input keepalive_seconds
+    id: keepalive
+    enabled: "{{ (keepalive_seconds | int(0)) > 0 }}"
+
+conditions: []
+
+actions:
+  # Keepalive nur, wenn ein Intervall gesetzt wurde (der Trigger ist sonst aus).
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: spitze
+          - condition: template
+            value_template: "{{ enabled and grid_charge_switch | length > 0 }}"
+        sequence:
+          # Vorherigen Zustand der Netzladung merken, wenn ein Merker gewählt ist
+          - if:
+              - condition: template
+                value_template: "{{ grid_charge_memory | length > 0 }}"
+            then:
+              - action: >-
+                  {{ 'input_boolean.turn_on'
+                     if grid_charge_switch | select('is_state', 'on') | list | length > 0
+                     else 'input_boolean.turn_off' }}
+                target:
+                  entity_id: "{{ grid_charge_memory }}"
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ grid_charge_switch }}"
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: vorbei
+              - condition: trigger
+                id: freigabe
+          - condition: template
+            value_template: "{{ grid_charge_switch | length > 0 }}"
+          - condition: template
+            value_template: >-
+              {{ grid_charge_memory | length == 0
+                 or grid_charge_memory | select('is_state', 'on') | list | length > 0 }}
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ grid_charge_switch }}"
+
+  # Mindestreserve setzen — nur schreiben, wenn sich der Wert wirklich ändert
+  # (spart Modbus-/Cloud-Schreibzugriffe; beim Keepalive wird bewusst neu geschrieben).
+  - if:
+      - condition: template
+        value_template: >-
+          {{ trigger.id == 'keepalive'
+             or (states(reserve_number) | float(-1) | round(0)) != (soll | float(5) | round(0)) }}
+    then:
+      - action: number.set_value
+        target:
+          entity_id: "{{ reserve_number }}"
+        data:
+          value: "{{ soll | float(5) | round(0) }}"
+      - repeat:
+          for_each: "{{ apply_script }}"
+          sequence:
+            - action: script.turn_on
+              target:
+                entity_id: "{{ repeat.item }}"

@@ -70,7 +70,7 @@ gebaut hat, braucht davon nichts mehr:
 | Template-Sensoren für Viertelstunde und Monatsspitze | 15-Min-Leistung und Monatsspitze mit Interpolation an der Grenze und Ungültig-Erkennung bei Messlücken |
 | Monatsspitze nur für den laufenden Monat | Verlauf über 36 Monate mit verrechneter Leistung, Leistungspreis und Herkunft (gemessen/importiert) |
 | Staffelgrenze, Preise, Hysterese fest im YAML | Einstellungs-Entities und Options-Dialog (eine Quelle, beide zeigen dasselbe) |
-| eigene Automationen für Wallbox, Lastabwurf, Push | drei Blueprints zum Importieren (siehe unten) |
+| eigene Automationen für Wallbox, Lastabwurf, Speicher, Push | vier Blueprints zum Importieren (siehe unten) |
 | Diagramme aus der Recorder-Historie | Sensor „Lastprofil“ (heute, gestern, Monatsprofil) und fertiges Grafik-Dashboard |
 
 ## Was du brauchst
@@ -260,9 +260,9 @@ Verordnung anders abgrenzen, wird das angepasst.
 
 ## Peak-Shaving mit Blueprints
 
-Drei Automations-Blueprints (Ordner [`blueprints/automation/netzentgelt/`](blueprints/automation/netzentgelt/)).
+Vier Automations-Blueprints (Ordner [`blueprints/automation/netzentgelt/`](blueprints/automation/netzentgelt/)).
 Import per Button (öffnet deine Home-Assistant-Instanz) oder unter Einstellungen → Automationen →
-Blueprints → „Blueprint importieren“ mit der Datei-URL. **Alle drei laufen nur, solange
+Blueprints → „Blueprint importieren“ mit der Datei-URL. **Alle laufen nur, solange
 „Peak-Shaving aktiv“ eingeschaltet ist** (Benachrichtigungen ausgenommen). Im Testharness von
 Home Assistant ausgeführt, **nicht an einer echten Wallbox** — zuerst in der Ablaufverfolgung
 beobachten.
@@ -272,6 +272,7 @@ beobachten.
 | **Wallbox am Spielraum ausrichten** (`wallbox_spielraum.yaml`) | Stellt den Ladestrom einer `number`-Entity (A) so ein, dass der Spielraum aufgebraucht, aber nicht überschritten wird: Phasen, Spannung, Min-/Höchststrom, Totband. Reicht selbst der Mindeststrom nicht, schaltet er optional einen Freigabe-Schalter der Wallbox aus und wieder ein, sobald Platz ist (spätestens nach 30 min). Beim Ausschalten von Peak-Shaving optional zurück auf Höchststrom. | [![Blueprint importieren](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Fwallbox_spielraum.yaml) |
 | **Lasten abwerfen** (`last_abwerfen.yaml`) | Schaltet gewählte Schalter/Input-Booleans aus, wenn „Spitze droht“ einschaltet, und nach dem Ende plus Wartezeit **nur die wieder ein, die er selbst ausgeschaltet hat** (optional erst zur nächsten Viertelstunde; sofort, wenn Peak-Shaving ausgeschaltet wird; spätestens nach der Höchstdauer). | [![Blueprint importieren](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Flast_abwerfen.yaml) |
 | **Benachrichtigung** (`benachrichtigung.yaml`) | Push bei „Spitze droht“ mit Prognose und Spielraum (höchstens einmal je Drosselzeit) und bei neuer Monatsspitze über der Staffelgrenze (danach je weiterer Stufe, z. B. alle 0,5 kW; nicht nach Neustart/Neuladen). Aktion frei wählbar, z. B. `notify.mobile_app_mein_handy`. | [![Blueprint importieren](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Fbenachrichtigung.yaml) |
+| **Hausspeicher reservieren** (`speicher_reserve.yaml`) | Hält im Speicher eine Reserve für Netzspitzen frei und gibt sie erst bei „Spitze droht“ aus: Mindestreserve = Notstrom + Peak, während der Spitze nur Notstrom. Optional wird die Netzladung des Speichers währenddessen abgeschaltet und danach in den vorherigen Zustand zurückgestellt. Für Wechselrichter, deren Mindestreserve als `number`-Entity verfügbar ist (z. B. Fronius GEN24); mit Keepalive-Option für Modbus-Steuerungen mit Verfallszeit. | [![Blueprint importieren](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fneuhubereco%2Fha-netzentgelt%2Fmain%2Fblueprints%2Fautomation%2Fnetzentgelt%2Fspeicher_reserve.yaml) |
 
 Wer [evcc](https://evcc.io) nutzt, kann statt des Wallbox-Blueprints auch dort einen `circuit` mit
 `maxPower` setzen. Wärmepumpen besser nur begrenzen, nicht hart abschalten.
@@ -475,6 +476,9 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 - **Aktion `netzentgelt.import_load_profile`:** Portal-Export (CSV) einlesen, in Verlauf und
   Lastprofil übernehmen, optional Langzeitstatistik für die Zeit vor den eigenen Messwerten.
 - **Blueprints:** Wallbox am Spielraum, Lasten abwerfen, Benachrichtigung.
+- *Nach dem Release 0.2.0 ergänzt:* Blueprint **Hausspeicher reservieren** — Notstrom- und
+  Peak-Reserve im Speicher trennen, Peak-Reserve nur bei drohender Spitze ausgeben, optional die
+  Netzladung des Speichers währenddessen abschalten.
 - **Dashboards:** Ziel-Schieberegler und Schalter im Standard-Dashboard, neues Grafik-Dashboard
   für apexcharts-card: heutige Viertelstunden (mit „Gestern“ zum Vergleich), Monatsprofil mit
   SNAP/WiNAP-Fenstern, Monatsspitzen mit Kostenlinie, Tages-Spitzen der letzten 60 Tage und
@@ -533,7 +537,8 @@ capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00,
   import also works (≈ 0.5 % below the utility meter in our test). Not suitable: household
   consumption in PV homes, sub-meters, next-day portal data (use those only with `tools/replay.py`
   for validation). The integration measures and warns; throttling is up to your own automation
-  (or e.g. an evcc `circuit` with `maxPower`) — three blueprints are included.
+  (or e.g. an evcc `circuit` with `maxPower`) — four blueprints are included (wallbox, load shedding,
+  home-battery reserve, notification).
 - **Install:** HACS → custom repository `https://github.com/neuhubereco/ha-netzentgelt`
   (category *Integration*), restart, add “Netzentgelt AT”.
 - **Configure:** grid import energy sensor (Wh/kWh/MWh, `total`/`total_increasing`), optional grid

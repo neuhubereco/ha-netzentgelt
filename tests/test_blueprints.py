@@ -58,9 +58,14 @@ def _used_inputs(node: Any) -> set[str]:
     return set()
 
 
-def test_three_blueprints_exist() -> None:
+def test_blueprints_exist() -> None:
     names = [p.name for p in BLUEPRINTS]
-    assert names == ["benachrichtigung.yaml", "last_abwerfen.yaml", "wallbox_spielraum.yaml"]
+    assert names == [
+        "benachrichtigung.yaml",
+        "last_abwerfen.yaml",
+        "speicher_reserve.yaml",
+        "wallbox_spielraum.yaml",
+    ]
 
 
 @pytest.mark.parametrize("path", BLUEPRINTS, ids=lambda p: p.name)
@@ -509,3 +514,126 @@ async def test_wallbox_blueprint_resets_when_disabled_during_pause(
     assert set_calls[-1].data["value"] == 16
     assert hass.states.get(current).state == "16.0"
     assert [c.data["entity_id"] for c in on_calls] == [[release]]
+
+
+async def test_speicher_blueprint_switches_reserve_and_grid_charge(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """Reserve = Notstrom+Peak, bei Spitze nur Notstrom, Netzladung aus und zurück."""
+    _install_blueprints(hass, tmp_path)
+    reserve = "number.speicher_mindestreserve"
+    imminent = "binary_sensor.netzentgelt_spitze_droht"
+    shaving = "switch.netzentgelt_peak_shaving_aktiv"
+    grid_charge = "switch.speicher_netzladung"
+    memory = "input_boolean.speicher_netzladung_vorher"
+
+    def set_number(call: ServiceCall) -> None:
+        for entity_id in call.data["entity_id"]:
+            hass.states.async_set(entity_id, str(float(call.data["value"])))
+
+    def set_state(domain_state: str) -> Any:
+        def apply(call: ServiceCall) -> None:
+            for entity_id in call.data["entity_id"]:
+                hass.states.async_set(entity_id, domain_state)
+
+        return apply
+
+    number_calls = _mock_service(hass, "number", "set_value", set_number)
+    _mock_service(hass, "switch", "turn_off", set_state("off"))
+    _mock_service(hass, "switch", "turn_on", set_state("on"))
+    _mock_service(hass, "input_boolean", "turn_on", set_state("on"))
+    _mock_service(hass, "input_boolean", "turn_off", set_state("off"))
+
+    hass.states.async_set(reserve, "5.0")
+    hass.states.async_set(imminent, "off")
+    hass.states.async_set(shaving, "on")
+    hass.states.async_set(grid_charge, "on")
+    hass.states.async_set(memory, "off")
+    await _setup_automation(
+        hass,
+        "speicher_reserve.yaml",
+        {
+            "peak_imminent": imminent,
+            "reserve_number": reserve,
+            "notstrom_pct": 20,
+            "peak_pct": 20,
+            "normal_pct": 5,
+            "peak_shaving_switch": [shaving],
+            "grid_charge_switch": [grid_charge],
+            "grid_charge_memory": [memory],
+            "wait_minutes": 0,
+        },
+    )
+
+    # Spitze droht → nur die Notstrom-Reserve bleibt, Netzladung aus, Merker gesetzt
+    await _set(hass, imminent, "on")
+    assert hass.states.get(reserve).state == "20.0"
+    assert hass.states.get(grid_charge).state == "off"
+    assert hass.states.get(memory).state == "on"
+
+    # Spitze vorbei → Peak-Reserve wird wieder aufgebaut, Netzladung zurück
+    await _set(hass, imminent, "off")
+    assert hass.states.get(reserve).state == "40.0"
+    assert hass.states.get(grid_charge).state == "on"
+
+    # Peak-Shaving aus → Normalwert
+    await _set(hass, shaving, "off")
+    assert hass.states.get(reserve).state == "5.0"
+
+    # Unveränderter Sollwert wird nicht erneut geschrieben
+    vorher = len(number_calls)
+    await _set(hass, shaving, "off")
+    assert len(number_calls) == vorher
+
+
+async def test_speicher_blueprint_keeps_grid_charge_off_without_memory_state(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """War die Netzladung vorher aus, bleibt sie nach der Spitze aus."""
+    _install_blueprints(hass, tmp_path)
+    reserve = "number.speicher_mindestreserve"
+    imminent = "binary_sensor.netzentgelt_spitze_droht"
+    grid_charge = "switch.speicher_netzladung"
+    memory = "input_boolean.speicher_netzladung_vorher"
+
+    def set_number(call: ServiceCall) -> None:
+        for entity_id in call.data["entity_id"]:
+            hass.states.async_set(entity_id, str(float(call.data["value"])))
+
+    def set_state(value: str) -> Any:
+        def apply(call: ServiceCall) -> None:
+            for entity_id in call.data["entity_id"]:
+                hass.states.async_set(entity_id, value)
+
+        return apply
+
+    _mock_service(hass, "number", "set_value", set_number)
+    on_calls = _mock_service(hass, "switch", "turn_on", set_state("on"))
+    _mock_service(hass, "switch", "turn_off", set_state("off"))
+    _mock_service(hass, "input_boolean", "turn_on", set_state("on"))
+    _mock_service(hass, "input_boolean", "turn_off", set_state("off"))
+
+    hass.states.async_set(reserve, "5.0")
+    hass.states.async_set(imminent, "off")
+    hass.states.async_set(grid_charge, "off")
+    hass.states.async_set(memory, "on")
+    await _setup_automation(
+        hass,
+        "speicher_reserve.yaml",
+        {
+            "peak_imminent": imminent,
+            "reserve_number": reserve,
+            "peak_pct": 30,
+            "grid_charge_switch": [grid_charge],
+            "grid_charge_memory": [memory],
+            "wait_minutes": 0,
+        },
+    )
+
+    await _set(hass, imminent, "on")
+    assert hass.states.get(memory).state == "off"  # vorheriger Zustand: aus
+    assert hass.states.get(reserve).state == "0.0"  # keine Notstrom-Reserve gesetzt
+    await _set(hass, imminent, "off")
+    assert hass.states.get(grid_charge).state == "off"
+    assert not on_calls
+    assert hass.states.get(reserve).state == "30.0"
