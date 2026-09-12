@@ -150,6 +150,26 @@ views:
                     day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
                     kw,
                   ]);
+              # Optional: der eigene Hausverbrauch als Vergleichslinie. Für die
+              # Leistungsspitze zählt nur der Netzbezug (die Säulen) — PV und
+              # Hausspeicher stehen dann als Abstand zwischen Linie und Säulen im
+              # Bild, und die Frage „warum zeigt die Prognose so wenig?" erklärt
+              # sich von selbst. Entity durch den eigenen Verbrauchssensor
+              # ersetzen; 5-Minuten-Statistik, weil deren Mittelwerte
+              # zeitgewichtet sind (roher Verlauf wäre es nicht).
+              # - entity: sensor.hausverbrauch_leistung
+              #   name: Hausverbrauch
+              #   type: line
+              #   curve: smooth
+              #   stroke_width: 2
+              #   color: "#ab47bc"
+              #   unit: kW
+              #   float_precision: 2
+              #   statistics:
+              #     type: mean
+              #     period: 5minute
+              #   show:
+              #     legend_value: false
               - entity: sensor.netzentgelt_lastprofil
                 name: Gestern
                 type: area
