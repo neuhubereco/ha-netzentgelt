@@ -161,13 +161,18 @@ views:
                 float_precision: 2
                 show:
                   legend_value: false
+                # Fehlende Viertelstunden werden hier weggelassen statt als null
+                # geliefert: die Kopfzeile zeigt den letzten Punkt der Reihe, und
+                # der ist bei einer fehlenden Messung um 23:45 sonst „N/A“.
                 data_generator: |
                   const values = entity.attributes.yesterday_kw || [];
                   const day = moment().startOf('day');
-                  return values.map((kw, slot) => [
-                    day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
-                    kw,
-                  ]);
+                  return values
+                    .map((kw, slot) => [
+                      day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
+                      kw,
+                    ])
+                    .filter(([, kw]) => Number.isFinite(kw));
               - entity: number.netzentgelt_ziel_leistung
                 name: Ziel
                 type: line

@@ -475,6 +475,34 @@ def test_headroom_formula() -> None:
     assert calc.headroom_formula(10.0, 2.45, 5, 0.0) == pytest.approx(0.05 / (30 / 3600))
 
 
+def test_headroom_cap() -> None:
+    # Kurz vor Ende der Viertelstunde wird die Formel absurd groß (30 s Restzeit,
+    # kaum verbraucht → mehrere hundert kW). Die Obergrenze schneidet das ab.
+    ungekappt = calc.headroom_formula(10.0, 0.07, 30, 0.4)
+    assert ungekappt > 200.0
+    assert calc.headroom_formula(10.0, 0.07, 30, 0.4, cap_kw=60.0) == pytest.approx(60.0)
+    # Unterhalb der Grenze ändert die Kappung nichts — auch nicht im Negativen.
+    assert calc.headroom_formula(10.0, 1.5, 360, 4.0, cap_kw=60.0) == pytest.approx(6.0)
+    assert calc.headroom_formula(10.0, 2.4, 360, 4.0, cap_kw=60.0) == pytest.approx(-3.0)
+
+
+def test_headroom_cap_from_quarter() -> None:
+    t0 = local(2026, 9, 11, 10, 0)
+    engine = engine_started(t0 - timedelta(minutes=2))
+
+    def meter(ts: datetime) -> float:
+        return 20.0 + 0.4 * (ts - (t0 - timedelta(minutes=2))).total_seconds() / 3600
+
+    stamps = [t0 - timedelta(minutes=2) + timedelta(seconds=10 * i) for i in range(100)]
+    run_quarter(engine, [(s, meter(s)) for s in stamps], [t0])
+    # 20 s vor Ende der Viertelstunde, Haus zieht nur 0.4 kW
+    now = t0 + calc.QUARTER - timedelta(seconds=20)
+    current = engine.current_quarter(now)
+    assert current is not None
+    assert calc.headroom_kw(current, 0.4, 10.0, now) > 200.0
+    assert calc.headroom_kw(current, 0.4, 10.0, now, cap_kw=60.0) == pytest.approx(60.0)
+
+
 def test_forecast_and_headroom_from_engine() -> None:
     t0 = local(2026, 9, 11, 10, 0)
     engine = engine_started(t0 - timedelta(minutes=2))

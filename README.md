@@ -35,6 +35,8 @@ Monat — genau hier setzt Peak-Shaving an.
 
 <img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png" alt="Oben: Tacho mit der Prognose der laufenden Viertelstunde, Peak-Shaving-Schalter und Ziel-Schieberegler, Monatsspitze mit geschätztem Leistungspreis, Tarif-Einstellungen" width="900">
 
+<img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/heute.png" alt="Alle 96 Viertelstunden des heutigen Tages als Säulen, grün unter dem Ziel und rot darüber, dazu der gestrige Tag als graue Fläche zum Vergleich und Linien für Ziel, Staffelgrenze und Monatsspitze; die roten Säulen in der Nacht sind Autoladen" width="900">
+
 <img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/profil.png" alt="Säulendiagramm über 24 Stunden: höchste Viertelstunde je Uhrzeit im laufenden Monat und Mittelwert, mit farbig hinterlegten SNAP- und WiNAP-Zeitfenstern und der Ziel-Linie; die Spitzen liegen am Abend um 20 Uhr" width="900">
 
 <img src="https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/monatsspitzen.png" alt="Monatsspitzen seit Jänner 2024 als Säulen, dazu der geschätzte Leistungspreis je Monat als Linie" width="900">

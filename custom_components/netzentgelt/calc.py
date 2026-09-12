@@ -536,24 +536,44 @@ def headroom_kw(
     power_kw: float,
     target_kw: float,
     now: datetime,
+    cap_kw: float | None = None,
 ) -> float:
     """Zusätzliche konstante Last (kW), die bis Viertelstundenende noch dazukommen darf.
 
     ((Ziel/4 − verbraucht_kWh) / Rest_h) − P_jetzt; negativ = drosseln.
-    ``verbraucht`` wird vom letzten Sample bis ``now`` mit P_jetzt
-    fortgeschrieben; die Restzeit wird auf mindestens 30 s begrenzt.
+    ``verbraucht`` wird vom letzten Sample bis ``now`` fortgeschrieben;
+    die Restzeit wird auf mindestens 30 s begrenzt.
+
+    ``cap_kw`` begrenzt das Ergebnis nach oben. In den letzten Sekunden einer
+    Viertelstunde geht die Formel sonst gegen mehrere hundert kW — rechnerisch
+    richtig (so viel dürfte man 30 s lang ziehen), als Anzeige und als
+    Stellgröße aber unbrauchbar: kein Hausanschluss kann das, und eine Last, die
+    an der Grenze hochfährt, läuft in die neue Viertelstunde hinein. Sinnvoll
+    ist die Plausibilitätsgrenze der Integration.
     """
     since_ref_h = max((now - current.ref_ts).total_seconds(), 0.0) / 3600
     used_now = current.used_kwh + power_kw * (since_ref_h + current.unseen_h)
     rest = max(current.end - now, MIN_REST)
     rest_h = rest.total_seconds() / 3600
-    return (target_kw * QUARTER_HOURS - used_now) / rest_h - power_kw
+    value = (target_kw * QUARTER_HOURS - used_now) / rest_h - power_kw
+    if cap_kw is not None:
+        return min(value, cap_kw)
+    return value
 
 
-def headroom_formula(target_kw: float, used_kwh: float, rest_s: float, power_kw: float) -> float:
+def headroom_formula(
+    target_kw: float,
+    used_kwh: float,
+    rest_s: float,
+    power_kw: float,
+    cap_kw: float | None = None,
+) -> float:
     """Spielraum-Formel ohne Zeitobjekte (Restzeit in Sekunden, min. 30 s)."""
     rest_h = max(rest_s, MIN_REST.total_seconds()) / 3600
-    return (target_kw * QUARTER_HOURS - used_kwh) / rest_h - power_kw
+    value = (target_kw * QUARTER_HOURS - used_kwh) / rest_h - power_kw
+    if cap_kw is not None:
+        return min(value, cap_kw)
+    return value
 
 
 def hysteresis(previous: bool, value: float | None, threshold: float, hyst: float) -> bool | None:

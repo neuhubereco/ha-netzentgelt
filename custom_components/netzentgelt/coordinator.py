@@ -261,7 +261,13 @@ class NetzentgeltCoordinator:
 
         if self.current is not None and self.power_now_kw is not None:
             self.forecast_kw = calc.forecast_kw(self.current, self.power_now_kw)
-            self.headroom_kw = calc.headroom_kw(self.current, self.power_now_kw, target, now)
+            self.headroom_kw = calc.headroom_kw(
+                self.current,
+                self.power_now_kw,
+                target,
+                now,
+                cap_kw=self.engine.plausibility_kw,
+            )
         else:
             self.forecast_kw = None
             self.headroom_kw = None
