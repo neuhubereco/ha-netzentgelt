@@ -464,6 +464,16 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 
 ## Changelog
 
+### Unveröffentlicht
+
+- **Grafik-Dashboard für englische Installationen:** `examples/dashboard-apexcharts.en.yaml` mit den
+  Entity-IDs, die HA bei Systemsprache Englisch anlegt, und englischen Beschriftungen. Die IDs
+  stammen aus einem Community-Beitrag ([@babajun12](https://github.com/babajun12), Issue #3); ein
+  Test prüft sie jetzt gegen eine echte englische Installation.
+- **Behoben:** Attribut-Zeilen in den Beispiel-Dashboards verwendeten `format:` — Home Assistant kennt
+  dort nur `time_format:`, der Zeitpunkt der Monatsspitze wurde deshalb unformatiert angezeigt.
+  Ebenfalls aus Issue #3.
+
 ### 0.2.1
 
 - **Blueprint „Hausspeicher reservieren" (neu):** Notstrom- und Peak-Reserve im Speicher trennen,
@@ -551,6 +561,7 @@ gehen trotzdem, auf zwei Wegen:
 
 Besonders willkommen: **Beispiel-Dashboards für andere Systemsprachen.** Die Entity-IDs entstehen
 aus der Systemsprache beim Anlegen, die Beispiele hier gelten für Deutsch (siehe *Entities*).
+Für Englisch gibt es seit einem Community-Beitrag [`examples/dashboard-apexcharts.en.yaml`](examples/dashboard-apexcharts.en.yaml).
 
 ## English summary
 
@@ -561,7 +572,7 @@ clock-aligned 15-minute average grid import power per calendar month is billed (
 capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00, WiNAP 1 Oct–31 Mar
 22:00–04:00 (a night belongs to the day it starts on).
 
-- **Entity IDs follow your system language.** The example dashboards in `examples/` use the IDs of a German installation. On an English installation (device name “Netzentgelt”) the IDs are: `sensor.netzentgelt_15_minute_power`, `sensor.netzentgelt_15_minute_forecast`, `sensor.netzentgelt_monthly_peak`, `sensor.netzentgelt_billed_power`, `sensor.netzentgelt_capacity_charge_month_estimate`, `sensor.netzentgelt_headroom`, `sensor.netzentgelt_tariff_window`, `sensor.netzentgelt_load_profile`, `binary_sensor.netzentgelt_peak_imminent`, `number.netzentgelt_target_power`, `number.netzentgelt_tier_limit`, `number.netzentgelt_agreed_capacity`, `number.netzentgelt_minimum_billed_power`, `number.netzentgelt_capacity_price_tier_1`, `number.netzentgelt_capacity_price_tier_2`, `number.netzentgelt_hysteresis`, `switch.netzentgelt_peak_shaving_active`. Replace them in the example, or better: contribute an English dashboard.
+- **Entity IDs follow your system language.** The example dashboards in `examples/` use the IDs of a German installation — **for an English installation use [`examples/dashboard-apexcharts.en.yaml`](examples/dashboard-apexcharts.en.yaml)** (English entity IDs contributed by [@babajun12](https://github.com/babajun12), issue #3). On an English installation (device name “Netzentgelt”) the IDs are: `sensor.netzentgelt_15_minute_power`, `sensor.netzentgelt_15_minute_forecast`, `sensor.netzentgelt_monthly_peak`, `sensor.netzentgelt_billed_power`, `sensor.netzentgelt_capacity_charge_month_estimate`, `sensor.netzentgelt_headroom`, `sensor.netzentgelt_tariff_window`, `sensor.netzentgelt_load_profile`, `binary_sensor.netzentgelt_peak_imminent`, `number.netzentgelt_target_power`, `number.netzentgelt_tier_limit`, `number.netzentgelt_agreed_capacity`, `number.netzentgelt_minimum_billed_power`, `number.netzentgelt_capacity_price_tier_1`, `number.netzentgelt_capacity_price_tier_2`, `number.netzentgelt_hysteresis`, `switch.netzentgelt_peak_shaving_active`. For the core-cards example `examples/dashboard.yaml`, replace them accordingly.
 - **Contributing:** only collaborators can upload to the repository directly (that is how GitHub works). Fork the repo and open a pull request, or open an issue and drag the file into the comment box — GitHub accepts `.yaml` attachments there.
 - **Screenshots:** [dashboard](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/dashboard.png), [peak profile](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/profil.png), [monthly peaks](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/monatsspitzen.png), [device page](https://raw.githubusercontent.com/neuhubereco/ha-netzentgelt/main/docs/images/geraet.png).
 - **Requirements:** Home Assistant ≥ 2026.3 and a frequently updated **grid import** energy sensor

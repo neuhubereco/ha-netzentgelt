@@ -40,7 +40,7 @@ views:
             entity: sensor.netzentgelt_tarifzeitfenster
             attribute: window_end
             name: Fenster endet
-            format: time
+            time_format: time
 
       - type: entities
         title: Dieser Monat
@@ -51,7 +51,7 @@ views:
             entity: sensor.netzentgelt_monatsspitze
             attribute: peak_quarter_start
             name: Spitze erreicht
-            format: datetime
+            time_format: datetime
           - type: attribute
             entity: sensor.netzentgelt_monatsspitze
             attribute: invalid_quarters_month

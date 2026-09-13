@@ -51,6 +51,29 @@ GERMAN_IDS = {
     "hysteresis_kw": "number.netzentgelt_hysterese",
 }
 
+# Dieselben Entities bei Systemsprache Englisch (examples/dashboard-apexcharts.en.yaml).
+# Beitrag aus der Community (Issue #3): Die Beispiel-Dashboards passten nur zu deutschen
+# Installationen, weil die IDs aus der Systemsprache entstehen.
+ENGLISH_IDS = {
+    "quarter_power": "sensor.netzentgelt_15_minute_power",
+    "forecast": "sensor.netzentgelt_15_minute_forecast",
+    "month_peak": "sensor.netzentgelt_monthly_peak",
+    "billed_power": "sensor.netzentgelt_billed_power",
+    "capacity_cost_month": "sensor.netzentgelt_capacity_charge_month_estimate",
+    "headroom": "sensor.netzentgelt_headroom",
+    "load_profile": "sensor.netzentgelt_load_profile",
+    "tariff_window": "sensor.netzentgelt_tariff_window",
+    "peak_imminent": "binary_sensor.netzentgelt_peak_imminent",
+    "peak_shaving": "switch.netzentgelt_peak_shaving_active",
+    "target_kw": "number.netzentgelt_target_power",
+    "tier_limit_kw": "number.netzentgelt_tier_limit",
+    "agreed_kw": "number.netzentgelt_agreed_capacity",
+    "minimum_kw": "number.netzentgelt_minimum_billed_power",
+    "price_tier1": "number.netzentgelt_capacity_price_tier_1",
+    "price_tier2": "number.netzentgelt_capacity_price_tier_2",
+    "hysteresis_kw": "number.netzentgelt_hysteresis",
+}
+
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
@@ -81,6 +104,18 @@ async def test_entity_ids_in_german(hass: HomeAssistant, freezer: FrozenDateTime
     # Bereich wie im Options-Flow: 0,5 kW bis zur Plausibilitätsgrenze (Standard 60 kW)
     assert target.attributes["min"] == 0.5 and target.attributes["max"] == 60
     assert target.attributes["step"] == 0.1 and target.attributes["mode"] == "slider"
+
+
+async def test_entity_ids_in_english(hass: HomeAssistant, freezer: FrozenDateTimeFactory) -> None:
+    """Auf einer englischen Installation entstehen genau die IDs des englischen Dashboards."""
+    hass.config.language = "en"
+    entry, _ = await _setup(hass, freezer, datetime(2026, 9, 11, 9, 56, tzinfo=VIENNA))
+    registry = er.async_get(hass)
+    ids = {
+        e.unique_id.removeprefix(f"{entry.entry_id}_"): e.entity_id
+        for e in er.async_entries_for_config_entry(registry, entry.entry_id)
+    }
+    assert ids == ENGLISH_IDS
 
 
 async def test_number_writes_options_live_without_reload(

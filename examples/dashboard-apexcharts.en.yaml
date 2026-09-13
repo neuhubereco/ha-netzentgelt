@@ -1,115 +1,118 @@
-# Beispiel-Dashboard mit Grafiken — braucht die HACS-Karte „apexcharts-card“
-# (HACS → Frontend → „apexcharts-card“, geschrieben für v2.2.x).
+# Example dashboard with charts for an ENGLISH Home Assistant installation — needs the
+# HACS card “apexcharts-card” (HACS → Frontend → “apexcharts-card”, written for v2.2.x).
+# German installation: use examples/dashboard-apexcharts.yaml instead.
 #
-# Einfügen: Dashboard → Bearbeiten → ⋮ → „Rohkonfiguration bearbeiten“ (ganzes
-# Dashboard) oder nur die Karten unter `cards:` in ein bestehendes Dashboard.
-# Entity-IDs gelten für den Gerätenamen „Netzentgelt“ und Systemsprache Deutsch
-# (siehe README, Abschnitt „Entities“).
+# Entity IDs are created from the device name and the entity name in the system language
+# at setup time. The IDs below are those of an English installation with the device name
+# “Netzentgelt” (see README, “English summary”). English entity IDs contributed by
+# @babajun12 (issue #3).
 #
-# Hinweise zur Karte:
-# * Die Farbschwellen (`color_threshold`) sind feste Zahlen — die Karte kann dort
-#   keine Entity-Werte lesen. Sie sind für ein Ziel von 10 kW gesetzt
-#   (grün < 9, gelb bis 10, rot darüber). Bei anderem Ziel die beiden Werte
-#   anpassen, z. B. Ziel 9,5 kW → 8.5 und 9.5. Die Ziel-LINIE folgt dagegen
-#   immer dem Schieberegler „Ziel-Leistung“.
-# * `data_generator` baut die Säulen aus den Attributen der Integration
-#   (kein Recorder nötig — die Listen werden bewusst nicht aufgezeichnet).
-# * Layout: Ansicht vom Typ „sections“; die Grafiken gehen über die volle Breite
-#   (`column_span`), die Höhe ist per `apex_config.chart.height` fest.
-# * `EVAL:`-Ausdrücke in `apex_config` werden beim Laden der Seite berechnet;
-#   bleibt das Dashboard über Mitternacht offen, einmal neu laden.
-title: Netzentgelt
+# Paste: Dashboard → Edit → ⋮ → “Raw configuration editor” (whole dashboard), or only the
+# cards under `cards:` into an existing dashboard.
+#
+# Notes on the card:
+# * The colour thresholds (`color_threshold`) are fixed numbers — the card cannot read entity
+#   values there. They are set for a target of 10 kW (green < 9, yellow up to 10, red above).
+#   For another target adjust both values, e.g. target 9.5 kW → 8.5 and 9.5. The target LINE
+#   always follows the “Target power” slider.
+# * `data_generator` builds the columns from the integration's attributes (no recorder
+#   needed — those lists are deliberately not recorded).
+# * Layout: view of type “sections”; charts span the full width (`column_span`), the height
+#   is fixed via `apex_config.chart.height`.
+# * `EVAL:` expressions in `apex_config` are evaluated when the page loads; if the dashboard
+#   stays open past midnight, reload once.
+title: Grid capacity charge
 views:
-  - title: Grafiken
-    path: netzentgelt-grafiken
+  - title: Charts
+    path: netzentgelt-charts
     icon: mdi:chart-bar
     type: sections
     max_columns: 3
     sections:
       - type: grid
         cards:
-          # --- Prognose der laufenden Viertelstunde (Core-Karte, gut lesbar) ---
+          # --- Forecast of the current quarter-hour (core card, easy to read) ---
           - type: gauge
-            name: Prognose laufende Viertelstunde
-            entity: sensor.netzentgelt_prognose_viertelstunde
+            name: Forecast current quarter-hour
+            entity: sensor.netzentgelt_15_minute_forecast
             unit: kW
             min: 0
             max: 20
             needle: true
             severity:
               green: 0
-              yellow: 9     # Ziel − 1 (für Ziel 10 kW)
-              red: 10       # Staffelgrenze / Ziel
+              yellow: 9     # target − 1 (for a 10 kW target)
+              red: 10       # tier limit / target
             grid_options:
               columns: full
-          # --- Einstellungen: Ziel per Schieberegler, Freigabe für Automationen ---
+          # --- Settings: target via slider, enable switch for automations ---
           - type: entities
-            title: Peak-Shaving
+            title: Peak shaving
             entities:
-              - entity: switch.netzentgelt_peak_shaving_aktiv
-                name: Peak-Shaving aktiv
-              - entity: number.netzentgelt_ziel_leistung
-                name: Ziel (15-Min-Mittel)
-              - entity: sensor.netzentgelt_spielraum
-                name: Spielraum bis zum Ziel
-              - entity: binary_sensor.netzentgelt_spitze_droht
-                name: Spitze droht
+              - entity: switch.netzentgelt_peak_shaving_active
+                name: Peak shaving active
+              - entity: number.netzentgelt_target_power
+                name: Target (15-min average)
+              - entity: sensor.netzentgelt_headroom
+                name: Headroom to target
+              - entity: binary_sensor.netzentgelt_peak_imminent
+                name: Peak imminent
             grid_options:
               columns: full
       - type: grid
         cards:
           - type: entities
-            title: Dieser Monat
+            title: This month
             entities:
-              - entity: sensor.netzentgelt_monatsspitze
-                name: Monatsspitze
+              - entity: sensor.netzentgelt_monthly_peak
+                name: Monthly peak
               - type: attribute
-                entity: sensor.netzentgelt_monatsspitze
+                entity: sensor.netzentgelt_monthly_peak
                 attribute: peak_quarter_start
-                name: erreicht
+                name: reached
                 time_format: datetime
-              - entity: sensor.netzentgelt_verrechnete_leistung
-                name: Verrechnete Leistung
-              - entity: sensor.netzentgelt_leistungspreis_monat_geschatzt
-                name: Leistungspreis (Schätzung)
-              - entity: sensor.netzentgelt_lastprofil
-                name: Spitze um
-              - entity: sensor.netzentgelt_tarifzeitfenster
-                name: Tarifzeitfenster
+              - entity: sensor.netzentgelt_billed_power
+                name: Billed power
+              - entity: sensor.netzentgelt_capacity_charge_month_estimate
+                name: Capacity charge (estimate)
+              - entity: sensor.netzentgelt_load_profile
+                name: Peak at
+              - entity: sensor.netzentgelt_tariff_window
+                name: Tariff window
             grid_options:
               columns: full
       - type: grid
         cards:
           - type: entities
-            title: Tarif (Richtwerte)
+            title: Tariff (indicative)
             entities:
-              - entity: number.netzentgelt_leistungspreis_stufe_1
-                name: Preis bis Staffelgrenze
-              - entity: number.netzentgelt_leistungspreis_stufe_2
-                name: Preis darüber
-              - entity: number.netzentgelt_staffelgrenze
-                name: Staffelgrenze
-              - entity: number.netzentgelt_vereinbarte_leistung
-                name: Vereinbarte Leistung
+              - entity: number.netzentgelt_capacity_price_tier_1
+                name: Price up to tier limit
+              - entity: number.netzentgelt_capacity_price_tier_2
+                name: Price above
+              - entity: number.netzentgelt_tier_limit
+                name: Tier limit
+              - entity: number.netzentgelt_agreed_capacity
+                name: Agreed capacity
             grid_options:
               columns: full
       - type: grid
         column_span: 3
         cards:
-          # --- (i) Heute: 96 Viertelstunden, Ziel, Staffelgrenze, Monatsspitze ---
-          # Zeitumstellung: graph_span ist eine feste Dauer (24 h ab Mitternacht).
-          # Am letzten Oktobersonntag (25-h-Tag) endet das Fenster um 23:00 — die
-          # Säulen 23:00–23:45 fehlen dann in der Grafik (die Werte selbst sind im
-          # Attribut today_kw vollständig); am letzten Märzsonntag (23-h-Tag) bleibt
-          # am Ende eine leere Stunde. Wer das nicht will: graph_span: 25h (dafür an
-          # allen anderen Tagen eine leere Stunde nach Mitternacht).
+          # --- (i) Today: 96 quarter-hours, target, tier limit, monthly peak ---
+          # DST change: graph_span is a fixed duration (24 h from midnight).
+          # On the last Sunday in October (25-hour day) the window ends at 23:00 — the
+          # columns 23:00–23:45 are then missing from the chart (the values themselves are
+          # complete in the attribute today_kw); on the last Sunday in March (23-hour day)
+          # one empty hour remains at the end. If you mind: graph_span: 25h (at the cost of
+          # one empty hour after midnight on all other days).
           - type: custom:apexcharts-card
             graph_span: 24h
             span:
               start: day
             header:
               show: true
-              title: Heute – Viertelstunden
+              title: Today – quarter-hours
               show_states: true
               colorize_states: true
             experimental:
@@ -125,15 +128,15 @@ views:
                 x:
                   format: HH:mm
             series:
-              - entity: sensor.netzentgelt_lastprofil
-                name: Viertelstunde
+              - entity: sensor.netzentgelt_load_profile
+                name: Quarter-hour
                 type: column
                 unit: kW
                 float_precision: 2
                 show:
                   in_header: false
                   legend_value: false
-                # Farbe je Säule: grün < Ziel − 1, gelb bis Ziel, rot darüber (für Ziel 10 kW)
+                # Colour per column: green < target − 1, yellow up to target, red above (for a 10 kW target)
                 color_threshold:
                   - value: 0
                     color: "#43a047"
@@ -141,8 +144,8 @@ views:
                     color: "#fbc02d"
                   - value: 10
                     color: "#e53935"
-                # Slot i = Viertelstunde ab i × 15 min nach Mitternacht (Wanduhrzeit,
-                # damit Tage mit Zeitumstellung stimmen); null = fehlend/ungültig.
+                # Slot i = quarter-hour starting i × 15 min after midnight (wall-clock time,
+                # so days with a DST change are correct); null = missing/invalid.
                 data_generator: |
                   const values = entity.attributes.today_kw || [];
                   const day = moment().startOf('day');
@@ -150,15 +153,15 @@ views:
                     day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
                     kw,
                   ]);
-              # Optional: der eigene Hausverbrauch als Vergleichslinie. Für die
-              # Leistungsspitze zählt nur der Netzbezug (die Säulen) — PV und
-              # Hausspeicher stehen dann als Abstand zwischen Linie und Säulen im
-              # Bild, und die Frage „warum zeigt die Prognose so wenig?" erklärt
-              # sich von selbst. Entity durch den eigenen Verbrauchssensor
-              # ersetzen; 5-Minuten-Statistik, weil deren Mittelwerte
-              # zeitgewichtet sind (roher Verlauf wäre es nicht).
-              # - entity: sensor.hausverbrauch_leistung
-              #   name: Hausverbrauch
+              # Optional: your own house consumption as a comparison line. Only grid
+              # import (the columns) counts for the capacity peak — PV and the home
+              # battery then show up as the gap between line and columns, which
+              # answers the question “why is the forecast so low?” by itself.
+              # Replace the entity with your own consumption sensor; 5-minute
+              # statistics, because their means are time-weighted (the raw history
+              # would not be).
+              # - entity: sensor.house_consumption_power
+              #   name: House consumption
               #   type: line
               #   curve: smooth
               #   stroke_width: 2
@@ -170,8 +173,8 @@ views:
               #     period: 5minute
               #   show:
               #     legend_value: false
-              - entity: sensor.netzentgelt_lastprofil
-                name: Gestern
+              - entity: sensor.netzentgelt_load_profile
+                name: Yesterday
                 type: area
                 curve: stepline
                 stroke_width: 1
@@ -181,9 +184,9 @@ views:
                 float_precision: 2
                 show:
                   legend_value: false
-                # Fehlende Viertelstunden werden hier weggelassen statt als null
-                # geliefert: die Kopfzeile zeigt den letzten Punkt der Reihe, und
-                # der ist bei einer fehlenden Messung um 23:45 sonst „N/A“.
+                # Missing quarter-hours are left out here instead of being returned as null:
+                # the header shows the last point of the series, which would otherwise
+                # read “N/A” when the 23:45 measurement is missing.
                 data_generator: |
                   const values = entity.attributes.yesterday_kw || [];
                   const day = moment().startOf('day');
@@ -193,8 +196,8 @@ views:
                       kw,
                     ])
                     .filter(([, kw]) => Number.isFinite(kw));
-              - entity: number.netzentgelt_ziel_leistung
-                name: Ziel
+              - entity: number.netzentgelt_target_power
+                name: Target
                 type: line
                 curve: stepline
                 stroke_width: 2
@@ -205,8 +208,8 @@ views:
                 data_generator: |
                   const kw = Number(entity.state);
                   return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
-              - entity: number.netzentgelt_staffelgrenze
-                name: Staffelgrenze
+              - entity: number.netzentgelt_tier_limit
+                name: Tier limit
                 type: line
                 curve: stepline
                 stroke_width: 1
@@ -217,8 +220,8 @@ views:
                 data_generator: |
                   const kw = Number(entity.state);
                   return Number.isFinite(kw) ? [[start.getTime(), kw], [end.getTime(), kw]] : [];
-              - entity: sensor.netzentgelt_monatsspitze
-                name: Monatsspitze
+              - entity: sensor.netzentgelt_monthly_peak
+                name: Monthly peak
                 type: line
                 curve: stepline
                 stroke_width: 2
@@ -233,18 +236,18 @@ views:
       - type: grid
         column_span: 3
         cards:
-          # --- (ii) Wann entstehen deine Spitzen? Monatsprofil über den Tag ---
-          # Säulen: höchste Viertelstunde je Uhrzeit im laufenden Monat, Linie: Mittel.
-          # Bänder: Tarifzeitfenster laut Verordnungsentwurf — SNAP 10–16 Uhr gilt nur
-          # 1.4.–30.9., WiNAP 22–04 Uhr nur 1.10.–31.3. Der Einfachheit halber sind
-          # beide immer eingezeichnet (feste Uhrzeiten des heutigen Tages).
+          # --- (ii) When do your peaks occur? Monthly profile over the day ---
+          # Columns: highest quarter-hour per time of day this month, line: average.
+          # Bands: tariff windows per the draft regulation — SNAP 10:00–16:00 only applies
+          # 1 Apr–30 Sep, WiNAP 22:00–04:00 only 1 Oct–31 Mar. For simplicity both are
+          # always drawn (fixed times of the current day).
           - type: custom:apexcharts-card
             graph_span: 24h
             span:
               start: day
             header:
               show: true
-              title: Wann entstehen deine Spitzen? (dieser Monat)
+              title: When do your peaks occur? (this month)
             yaxis:
               - min: 0
                 decimals: 1
@@ -268,7 +271,7 @@ views:
                     fillColor: "#5c6bc0"
                     opacity: 0.15
                     label:
-                      text: WiNAP (Okt–Mär)
+                      text: WiNAP (Oct–Mar)
                       borderColor: "#5c6bc0"
                   - x: "EVAL:new Date().setHours(22, 0, 0, 0)"
                     x2: "EVAL:new Date().setHours(24, 0, 0, 0)"
@@ -278,8 +281,8 @@ views:
                       text: WiNAP
                       borderColor: "#5c6bc0"
             series:
-              - entity: sensor.netzentgelt_lastprofil
-                name: Höchste Viertelstunde
+              - entity: sensor.netzentgelt_load_profile
+                name: Highest quarter-hour
                 show:
                   legend_value: false
                 type: column
@@ -294,8 +297,8 @@ views:
                     day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
                     kw,
                   ]);
-              - entity: sensor.netzentgelt_lastprofil
-                name: Mittel
+              - entity: sensor.netzentgelt_load_profile
+                name: Average
                 show:
                   legend_value: false
                 type: line
@@ -312,8 +315,8 @@ views:
                     day.clone().hours(Math.floor(slot / 4)).minutes((slot % 4) * 15).valueOf(),
                     kw,
                   ]);
-              - entity: number.netzentgelt_ziel_leistung
-                name: Ziel
+              - entity: number.netzentgelt_target_power
+                name: Target
                 type: line
                 curve: stepline
                 stroke_width: 2
@@ -329,19 +332,19 @@ views:
       - type: grid
         column_span: 3
         cards:
-          # --- (iii) Monatsspitzen der letzten 36 Monate + Leistungspreis ---
-          # Säulen grün bis 10 kW (Stufe 1), rot darüber (Stufe 2; 10 kW ist die im
-          # Entwurf festgelegte Staffelgrenze für Netzebene 7). Linie: geschätzter
-          # Leistungspreis je Monat, mit den AKTUELLEN Preiseinstellungen gerechnet.
-          # Importierte Monate (Portal-Export) erscheinen genauso.
-          # Wenige Daten? graph_span z. B. auf 365d verkürzen.
+          # --- (iii) Monthly peaks of the last 36 months + capacity charge ---
+          # Columns green up to 10 kW (tier 1), red above (tier 2; 10 kW is the tier limit
+          # for grid level 7 set in the draft). Line: estimated capacity charge per month,
+          # calculated with the CURRENT price settings.
+          # Imported months (portal export) appear the same way.
+          # Little data? Shorten graph_span, e.g. to 365d.
           - type: custom:apexcharts-card
             graph_span: 1096d
             span:
               end: month
             header:
               show: true
-              title: Monatsspitzen und Leistungspreis
+              title: Monthly peaks and capacity charge
             experimental:
               color_threshold: true
             yaxis:
@@ -357,7 +360,7 @@ views:
                 decimals: 0
                 apex_config:
                   title:
-                    text: € / Monat
+                    text: € / month
             apex_config:
               chart:
                 height: 320
@@ -365,8 +368,8 @@ views:
                 x:
                   format: MMM yyyy
             series:
-              - entity: sensor.netzentgelt_monatsspitze
-                name: Monatsspitze
+              - entity: sensor.netzentgelt_monthly_peak
+                name: Monthly peak
                 type: column
                 yaxis_id: kw
                 unit: kW
@@ -385,8 +388,8 @@ views:
                     moment(month + '-15', 'YYYY-MM-DD').valueOf(),
                     history[month].peak_kw,
                   ]);
-              - entity: sensor.netzentgelt_monatsspitze
-                name: Leistungspreis
+              - entity: sensor.netzentgelt_monthly_peak
+                name: Capacity charge
                 type: line
                 curve: straight
                 stroke_width: 2
@@ -407,18 +410,18 @@ views:
             grid_options:
               columns: full
 
-      # --- (vi) Tages-Spitzen: höchste Viertelstunde je Tag (Langzeitstatistik) ---
+      # --- (iv) Daily peaks: highest quarter-hour per day (long-term statistics) ---
       - type: grid
         column_span: 3
         cards:
-          # --- Tages-Spitzen: höchste Viertelstunde je Tag (aus der Langzeitstatistik) ---
+          # --- Daily peaks: highest quarter-hour per day (from long-term statistics) ---
           - type: custom:apexcharts-card
             graph_span: 60d
             span:
               end: day
             header:
               show: true
-              title: Tages-Spitzen (60 Tage)
+              title: Daily peaks (60 days)
               show_states: true
               colorize_states: true
             experimental:
@@ -428,13 +431,13 @@ views:
                 height: 300
               tooltip:
                 x:
-                  format: dd. MMM
+                  format: dd MMM
             yaxis:
               - min: 0
                 decimals: 1
             series:
-              - entity: sensor.netzentgelt_15_min_leistung
-                name: Höchste Viertelstunde
+              - entity: sensor.netzentgelt_15_minute_power
+                name: Highest quarter-hour
                 type: column
                 unit: kW
                 float_precision: 2
@@ -448,8 +451,8 @@ views:
                     color: "#fbc02d"
                   - value: 10
                     color: "#e53935"
-              - entity: number.netzentgelt_ziel_leistung
-                name: Ziel
+              - entity: number.netzentgelt_target_power
+                name: Target
                 type: line
                 curve: stepline
                 stroke_width: 2
@@ -467,14 +470,14 @@ views:
       - type: grid
         column_span: 2
         cards:
-          # --- Jahreswerte: höchste Viertelstunde je Jahr + Leistungspreis (Summe der Monate) ---
+          # --- Yearly values: highest quarter-hour per year + capacity charge (sum of months) ---
           - type: custom:apexcharts-card
             graph_span: 1096d
             span:
               end: year
             header:
               show: true
-              title: Jahreswerte (laufendes Jahr anteilig)
+              title: Yearly values (current year pro rata)
             apex_config:
               chart:
                 height: 300
@@ -496,8 +499,8 @@ views:
                   title:
                     text: € / Jahr
             series:
-              - entity: sensor.netzentgelt_monatsspitze
-                name: Höchste Viertelstunde
+              - entity: sensor.netzentgelt_monthly_peak
+                name: Highest quarter-hour
                 type: column
                 yaxis_id: kw
                 unit: kW
@@ -518,8 +521,8 @@ views:
                   return Object.keys(years).sort().map((year) => [
                     moment(year + '-07-01').valueOf(), years[year],
                   ]);
-              - entity: sensor.netzentgelt_monatsspitze
-                name: Leistungspreis (Summe der Monate)
+              - entity: sensor.netzentgelt_monthly_peak
+                name: Capacity charge (sum of months)
                 type: column
                 yaxis_id: eur
                 unit: €
