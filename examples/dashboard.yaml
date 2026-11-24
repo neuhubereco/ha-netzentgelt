@@ -83,8 +83,10 @@ views:
       - type: markdown
         title: Hinweis
         content: >-
-          Näherung nach dem **Entwurf** der SNE-G-V. Preise sind Richtwerte,
-          maßgeblich ist der Zähler des Netzbetreibers.
+          Näherung nach der SNE-G-V (BGBl. II Nr. 299/2026). Bis 30.11.2027 gilt
+          auf Netzebene 7 eine Übergangsregel, die Kosten sind bis dahin eine
+          Vorschau. Preise sind Richtwerte, maßgeblich ist der Zähler des
+          Netzbetreibers.
 
 # Grafiken (Tagesverlauf, Monatsprofil, Monatsspitzen) mit der HACS-Karte
 # „apexcharts-card“: siehe examples/dashboard-apexcharts.yaml.

@@ -112,9 +112,18 @@ async def test_quarter_peak_billing_and_regression(
     assert peak.attributes["month"] == "2026-09"
     assert "2026-09" in peak.attributes["history"]
 
-    # verrechnet: max(2.00, 2 kW, 20 % von 10 kW) = 2.0 → 2 × 33.82 / 12 = 5.64 €
+    # verrechnet: max(2.00, Mindestleistung 2 kW) = 2.0 → 2 × 30.42 / 12 = 5.07 €
     assert float(_state(hass, entry, "billed_power").state) == pytest.approx(2.0, abs=0.01)
-    assert float(_state(hass, entry, "capacity_cost_month").state) == pytest.approx(5.64, abs=0.01)
+    assert float(_state(hass, entry, "capacity_cost_month").state) == pytest.approx(5.07, abs=0.01)
+    # 11.09.2026: Übergangsregel noch nicht einmal begonnen → Kosten sind eine Vorschau
+    cost = _state(hass, entry, "capacity_cost_month")
+    assert cost.attributes["billing_start"] == "2027-12-01"
+    assert cost.attributes["billing_active"] is False
+    billed = _state(hass, entry, "billed_power")
+    assert billed.attributes["grandfathered_kw"] == pytest.approx(10.0)  # eine Spitze von 2 kW < 10 kW
+    assert billed.attributes["grandfathered_year"] == "2026"
+    assert billed.attributes["grandfathered_months"] == 1
+    assert "minimum_share" not in billed.attributes
     assert _state(hass, entry, "tariff_window").state == "snap"
     assert _state(hass, entry, "tariff_window").attributes["window_end"].startswith("2026-09-11T16:00")
 
@@ -171,7 +180,9 @@ async def test_power_sensor_is_used_for_forecast(hass: HomeAssistant, freezer: F
     forecast = _state(hass, entry, "forecast")
     assert forecast.attributes["power_source"] == "power_sensor"
     assert forecast.attributes["power_now_kw"] == 0.0  # Einspeisung zählt als 0
-    assert _state(hass, entry, "tariff_window").state == "winap"
+    # 1.12.2026, 23 Uhr: kein WiNAP vor dem 1.10.2027, das Fenster reicht bis zum ersten SNAP
+    assert _state(hass, entry, "tariff_window").state == "standard"
+    assert _state(hass, entry, "tariff_window").attributes["window_end"].startswith("2027-04-01T10:00")
 
     hass.states.async_set(POWER, "12000", {"unit_of_measurement": "W", "device_class": "power"})
     await meter.run(60, kw=12.0)

@@ -12,6 +12,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.netzentgelt.const import (
+    CONF_BILLING_START,
     CONF_ENERGY_ENTITY,
     CONF_HYSTERESIS_KW,
     CONF_PLAUSIBILITY_KW,
@@ -161,3 +162,31 @@ async def test_options_flow_rejects_hysteresis_above_target(hass: HomeAssistant)
     )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {CONF_HYSTERESIS_KW: "hysteresis_too_large"}
+
+
+async def test_options_flow_billing_start_is_live_and_old_entries_get_default(hass: HomeAssistant) -> None:
+    """Stichtag der Leistungsverrechnung: Bestandseinträge ohne den Schlüssel bekommen den Standard."""
+    _set_sources(hass)
+    old_options = {key: value for key, value in DEFAULT_OPTIONS.items() if key != CONF_BILLING_START}
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ENERGY,
+        title="Netzentgelt",
+        data={CONF_ENERGY_ENTITY: ENERGY},
+        options=old_options,
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator.billing_start.isoformat() == "2027-12-01"
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**DEFAULT_OPTIONS, CONF_BILLING_START: "2027-01-01"}
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_BILLING_START] == "2027-01-01"
+    assert entry.runtime_data is coordinator  # live übernommen, kein Neuladen
+    assert coordinator.billing_start.isoformat() == "2027-01-01"

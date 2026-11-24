@@ -182,7 +182,7 @@ async def test_import_merges_history_and_day_profiles(
     assert history["2026-07"]["source"] == "imported"
     assert history["2026-07"]["peak_kw"] == pytest.approx(9.0)
     assert history["2026-07"]["billed_kw"] == pytest.approx(9.0)
-    assert history["2026-07"]["capacity_cost_eur"] == pytest.approx(25.37, abs=0.01)  # 9 × 33,82 / 12
+    assert history["2026-07"]["capacity_cost_eur"] == pytest.approx(22.82, abs=0.01)  # 9 × 30,42 / 12
     assert history["2026-08"]["source"] == "imported"
     assert float(_state(hass, entry, "billed_power").state) == pytest.approx(7.0)
 

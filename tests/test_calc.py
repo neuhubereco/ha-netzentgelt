@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 import importlib.util
 from pathlib import Path
 import sys
@@ -395,7 +395,7 @@ def test_history_keeps_36_months_and_roundtrips() -> None:
 
 
 def test_tier_price_12_kw() -> None:
-    p1, p2 = 33.82, 67.64
+    p1, p2 = 28.92, 43.44  # Netz OÖ laut Begutachtungsentwurf SNE-T-V 2027
     assert calc.annual_capacity_cost(12.0, 10.0, p1, p2) == pytest.approx(10 * p1 + 2 * p2)
     assert calc.monthly_capacity_cost(12.0, 10.0, p1, p2) == calc.round_half_up((10 * p1 + 2 * p2) / 12, 2)
     assert calc.annual_capacity_cost(8.0, 10.0, p1, p2) == pytest.approx(8 * p1)
@@ -403,11 +403,38 @@ def test_tier_price_12_kw() -> None:
 
 
 def test_minimum_billing() -> None:
-    assert calc.minimum_billed_kw(12.0, 2.0) == pytest.approx(2.4)
-    assert calc.minimum_billed_kw(4.0, 2.0) == pytest.approx(2.0)
-    assert calc.billed_kw(1.2, 12.0, 2.0) == pytest.approx(2.4)
-    assert calc.billed_kw(None, 10.0, 2.0) == pytest.approx(2.0)
-    assert calc.billed_kw(7.456, 10.0, 2.0) == pytest.approx(7.46)
+    # Netzebene 7: Mindestbemessung 2 kW, unabhängig von der vereinbarten Leistung
+    assert calc.billed_kw(1.2, 2.0) == pytest.approx(2.0)
+    assert calc.billed_kw(None, 2.0) == pytest.approx(2.0)
+    assert calc.billed_kw(7.456, 2.0) == pytest.approx(7.46)
+    assert calc.billed_kw(2.004, 2.0) == pytest.approx(2.0)
+
+
+def test_grandfathered_kw() -> None:
+    # § 34 Abs. 1: max(10 kW, vereinbart, Mittel der zwei höchsten Monatsspitzen 2026)
+    peaks = {"2026-01": 18.98, "2026-02": 20.54, "2026-03": 12.0, "2025-12": 30.0, "2027-01": 40.0}
+    assert calc.grandfathered_kw(10.0, peaks) == (19.76, "2026", 2)
+    assert calc.grandfathered_kw(25.0, peaks) == (25.0, "2026", 2)
+    assert calc.grandfathered_kw(4.0, {"2026-05": 6.0, "2026-06": 7.0}) == (10.0, "2026", 2)
+    # nur ein Monat vorhanden: Näherung mit diesem einen
+    assert calc.grandfathered_kw(10.0, {"2026-12": 14.0}) == (14.0, "2026", 1)
+    # keine Werte aus 2026 → 2027
+    only_2027 = {"2027-01": 12.0, "2027-02": 16.0, "2027-03": None}
+    assert calc.grandfathered_kw(10.0, only_2027) == (14.0, "2027", 2)
+    assert calc.grandfathered_kw(10.0, {}) == (10.0, None, 0)
+    assert calc.grandfathered_kw(10.0, {"2028-01": 30.0}) == (10.0, None, 0)
+
+
+def test_billing_start() -> None:
+    start = calc.parse_date("2027-12-01")
+    assert start == date(2027, 12, 1)
+    assert calc.billing_started(date(2027, 11, 30), start) is False
+    assert calc.billing_started(date(2027, 12, 1), start) is True
+    assert calc.parse_date(" 2028-07-01 ") == date(2028, 7, 1)
+    assert calc.parse_date(datetime(2027, 1, 1, 12, 0)) == date(2027, 1, 1)
+    assert calc.parse_date("1.12.2027") is None
+    assert calc.parse_date(None) is None
+    assert calc.parse_date(20271201) is None
 
 
 def test_round_half_up() -> None:
@@ -424,24 +451,30 @@ def test_round_half_up() -> None:
 @pytest.mark.parametrize(
     ("moment", "expected"),
     [
-        (local(2027, 3, 31, 21, 59), calc.TARIFF_STANDARD),
-        (local(2027, 3, 31, 22, 0), calc.TARIFF_WINAP),
-        (local(2027, 3, 31, 23, 59), calc.TARIFF_WINAP),
-        (local(2027, 4, 1, 3, 59), calc.TARIFF_WINAP),  # Nacht 31.3.→1.4. endet 04:00
-        (local(2027, 4, 1, 4, 0), calc.TARIFF_STANDARD),
+        # Winter 2026/27: den WiNAP gibt es noch nicht (§ 32 Abs. 4: ab 1.10.2027)
+        (local(2026, 12, 1, 23, 30), calc.TARIFF_STANDARD),
+        (local(2027, 1, 1, 0, 30), calc.TARIFF_STANDARD),
+        (local(2027, 3, 31, 23, 59), calc.TARIFF_STANDARD),
+        (local(2027, 4, 1, 3, 59), calc.TARIFF_STANDARD),
         (local(2027, 4, 1, 9, 59), calc.TARIFF_STANDARD),
         (local(2027, 4, 1, 10, 0), calc.TARIFF_SNAP),
         (local(2027, 4, 1, 15, 59), calc.TARIFF_SNAP),
         (local(2027, 4, 1, 16, 0), calc.TARIFF_STANDARD),
-        (local(2027, 4, 1, 22, 30), calc.TARIFF_STANDARD),
+        (local(2027, 4, 1, 23, 30), calc.TARIFF_STANDARD),
         (local(2027, 9, 30, 15, 59), calc.TARIFF_SNAP),
         (local(2027, 9, 30, 23, 0), calc.TARIFF_STANDARD),
-        (local(2027, 10, 1, 3, 59), calc.TARIFF_STANDARD),  # Nacht 30.9.→1.10. keine WiNAP
+        (local(2027, 10, 1, 4, 59), calc.TARIFF_STANDARD),  # Nacht 30.9.→1.10. kein WiNAP
         (local(2027, 10, 1, 12, 0), calc.TARIFF_STANDARD),
-        (local(2027, 10, 1, 22, 0), calc.TARIFF_WINAP),
-        (local(2027, 10, 2, 3, 59), calc.TARIFF_WINAP),
-        (local(2027, 1, 1, 0, 30), calc.TARIFF_WINAP),
-        (local(2027, 1, 1, 12, 0), calc.TARIFF_STANDARD),
+        (local(2027, 10, 1, 22, 59), calc.TARIFF_STANDARD),
+        (local(2027, 10, 1, 23, 0), calc.TARIFF_WINAP),  # erste WiNAP-Nacht
+        (local(2027, 10, 2, 4, 59), calc.TARIFF_WINAP),
+        (local(2027, 10, 2, 5, 0), calc.TARIFF_STANDARD),
+        (local(2028, 1, 1, 0, 30), calc.TARIFF_WINAP),
+        (local(2028, 1, 1, 12, 0), calc.TARIFF_STANDARD),
+        (local(2028, 3, 31, 22, 59), calc.TARIFF_STANDARD),
+        (local(2028, 3, 31, 23, 0), calc.TARIFF_WINAP),
+        (local(2028, 4, 1, 4, 59), calc.TARIFF_WINAP),  # Nacht 31.3.→1.4. endet 05:00
+        (local(2028, 4, 1, 5, 0), calc.TARIFF_STANDARD),
     ],
 )
 def test_tariff_window(moment: datetime, expected: str) -> None:
@@ -449,11 +482,14 @@ def test_tariff_window(moment: datetime, expected: str) -> None:
 
 
 def test_tariff_window_end() -> None:
-    assert calc.tariff_window_end(local(2027, 3, 31, 23, 0), VIENNA) == local(2027, 4, 1, 4, 0)
-    assert calc.tariff_window_end(local(2027, 4, 1, 4, 0), VIENNA) == local(2027, 4, 1, 10, 0)
+    assert calc.tariff_window_end(local(2028, 3, 31, 23, 30), VIENNA) == local(2028, 4, 1, 5, 0)
+    assert calc.tariff_window_end(local(2028, 4, 1, 5, 0), VIENNA) == local(2028, 4, 1, 10, 0)
     assert calc.tariff_window_end(local(2027, 4, 1, 12, 0), VIENNA) == local(2027, 4, 1, 16, 0)
-    assert calc.tariff_window_end(local(2027, 9, 30, 16, 0), VIENNA) == local(2027, 10, 1, 22, 0)
-    assert calc.tariff_window_end(local(2027, 1, 5, 12, 0), VIENNA) == local(2027, 1, 5, 22, 0)
+    assert calc.tariff_window_end(local(2027, 9, 30, 16, 0), VIENNA) == local(2027, 10, 1, 23, 0)
+    assert calc.tariff_window_end(local(2028, 1, 5, 12, 0), VIENNA) == local(2028, 1, 5, 23, 0)
+    # Winter 2026/27 ohne WiNAP: „standard“ durchgehend bis zum ersten SNAP-Fenster
+    assert calc.tariff_window_end(local(2026, 9, 30, 16, 0), VIENNA) == local(2027, 4, 1, 10, 0)
+    assert calc.tariff_window_end(local(2027, 1, 5, 12, 0), VIENNA) == local(2027, 4, 1, 10, 0)
 
 
 def test_energy_price_only_if_set() -> None:

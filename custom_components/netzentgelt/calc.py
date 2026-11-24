@@ -53,11 +53,21 @@ TARIFF_OPTIONS = [TARIFF_SNAP, TARIFF_WINAP, TARIFF_STANDARD]
 
 SNAP_START = time(10, 0)
 SNAP_END = time(16, 0)
-WINAP_START = time(22, 0)
-WINAP_END = time(4, 0)
+WINAP_START = time(23, 0)
+WINAP_END = time(5, 0)
+# Der WiNAP gilt erstmals für den Zeitraum ab 1.10.2027 (§ 32 Abs. 4 SNE-G-V).
+WINAP_FIRST_DAY = date(2027, 10, 1)
+
+# Bestandsanschlüsse der Netzebene 7 (§ 34 Abs. 1 SNE-G-V): mindestens 10 kW,
+# Vergleichsjahr für die zwei höchsten Monatsspitzen ist 2026, ersatzweise 2027.
+GRANDFATHERED_BASE_KW = 10.0
+GRANDFATHERED_YEARS = (2026, 2027)
 
 # Uhrzeiten, an denen sich das Tarifzeitfenster ändern kann.
 _TARIFF_CHANGE_TIMES = (WINAP_END, SNAP_START, SNAP_END, WINAP_START)
+# Längste Strecke ohne Fensterwechsel: 30.9. 16:00 bis 1.4. 10:00, solange es
+# den WiNAP noch nicht gibt (Winter 2026/27).
+_WINDOW_SEARCH_DAYS = 190
 
 # --- Einheiten ---------------------------------------------------------------
 _ENERGY_FACTORS_TO_KWH = {"Wh": 0.001, "kWh": 1.0, "MWh": 1000.0}
@@ -590,17 +600,58 @@ def hysteresis(previous: bool, value: float | None, threshold: float, hyst: floa
 # =============================================================================
 
 
-def minimum_billed_kw(agreed_kw: float, minimum_kw: float, share: float = 0.2) -> float:
-    """Mindestverrechnung: max(20 % der vereinbarten Leistung, Mindestleistung)."""
-    return max(agreed_kw * share, minimum_kw)
+def billed_kw(peak_kw: float | None, minimum_kw: float) -> float:
+    """Verrechnete Leistung = max(Monatsspitze kaufmännisch gerundet, Mindestleistung).
 
-
-def billed_kw(peak_kw: float | None, agreed_kw: float, minimum_kw: float) -> float:
-    """Verrechnete Leistung = max(Monatsspitze kaufmännisch gerundet, Minimum)."""
-    floor = minimum_billed_kw(agreed_kw, minimum_kw)
+    Netzebene 7: Mindestbemessungsgrundlage 2 kW (§ 6 Abs. 3 Z 2 SNE-G-V). Die
+    20 % der vereinbarten Leistung gelten nur auf den Netzebenen 1 bis 6.
+    """
     if peak_kw is None:
-        return round_half_up(floor, 2)
-    return round_half_up(max(round_half_up(peak_kw, 2), floor), 2)
+        return round_half_up(minimum_kw, 2)
+    return round_half_up(max(round_half_up(peak_kw, 2), minimum_kw), 2)
+
+
+def grandfathered_kw(agreed_kw: float, month_peaks: dict[str, float | None]) -> tuple[float, str | None, int]:
+    """Maßgebliche Leistung eines Bestandsanschlusses (§ 34 Abs. 1 SNE-G-V).
+
+    Höchster Wert aus 10 kW, der vereinbarten Leistung und dem Mittel der zwei
+    höchsten Monatsspitzen 2026 — liegen für 2026 keine Werte vor, jener von
+    2027. ``month_peaks``: Monat (``JJJJ-MM``) → Spitze in kW.
+
+    Rückgabe: (kW, Vergleichsjahr oder ``None``, Anzahl verwendeter Monate).
+    Mit nur einem Monat zählt dieser allein — eine Näherung, bis der zweite da ist.
+    """
+    floor = max(GRANDFATHERED_BASE_KW, agreed_kw)
+    for year in GRANDFATHERED_YEARS:
+        of_year = (kw for key, kw in month_peaks.items() if key.startswith(f"{year}-") and kw is not None)
+        peaks = sorted((round_half_up(kw, 2) for kw in of_year), reverse=True)[:2]
+        if peaks:
+            return round_half_up(max(floor, sum(peaks) / len(peaks)), 2), str(year), len(peaks)
+    return round_half_up(floor, 2), None, 0
+
+
+def billing_started(today: date, start: date) -> bool:
+    """Wird der Leistungspreis schon nach der Monatsspitze verrechnet?
+
+    Bis 30.11.2027 gilt auf Netzebene 7 eine Übergangsregel (§ 6 Abs. 3a
+    SNE-G-V): Pauschale je Zählpunkt für nicht gemessene Kunden. Der Stichtag
+    kann je Netzbereich verschoben werden (§ 6 Abs. 3b).
+    """
+    return today >= start
+
+
+def parse_date(value: Any) -> date | None:
+    """ISO-Datum (``JJJJ-MM-TT``) lesen; ``None`` bei allem anderen."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError:
+        return None
 
 
 def annual_capacity_cost(billed: float, tier_limit_kw: float, price_1: float, price_2: float) -> float:
@@ -625,17 +676,17 @@ def _in_snap_season(day: date) -> bool:
 
 
 def _in_winap_season(day: date) -> bool:
-    return day.month >= 10 or day.month <= 3
+    return day >= WINAP_FIRST_DAY and (day.month >= 10 or day.month <= 3)
 
 
 def tariff_window(moment: datetime, tz: tzinfo) -> str:
     """Tarifzeitfenster zum Zeitpunkt ``moment`` (lokale Zeit ``tz``).
 
     * SNAP: 1.4.–30.9., 10:00–16:00.
-    * WiNAP: Nächte, die an einem Tag zwischen 1.10. und 31.3. um 22:00
-      BEGINNEN, bis 04:00 des Folgetags. Die Nacht 31.3.→1.4. ist damit bis
-      04:00 WiNAP; die Nacht 30.9.→1.10. ist es nicht (erste WiNAP-Nacht
-      beginnt am 1.10. um 22:00).
+    * WiNAP (§ 7 Abs. 4 SNE-G-V): Nächte, die an einem Tag zwischen 1.10. und
+      31.3. um 23:00 BEGINNEN, bis 05:00 des Folgetags. Die Nacht 31.3.→1.4.
+      ist damit bis 05:00 WiNAP; die Nacht 30.9.→1.10. ist es nicht. Erste
+      WiNAP-Nacht überhaupt: 1.10.2027, 23:00 (§ 32 Abs. 4).
     * sonst: standard.
     """
     _require_aware(moment)
@@ -655,7 +706,7 @@ def tariff_window_end(moment: datetime, tz: tzinfo) -> datetime:
     """Zeitpunkt (lokal, tz-behaftet), an dem das aktuelle Fenster endet."""
     current = tariff_window(moment, tz)
     local = moment.astimezone(tz)
-    for day_offset in range(4):
+    for day_offset in range(_WINDOW_SEARCH_DAYS):
         day = local.date() + timedelta(days=day_offset)
         for clock in _TARIFF_CHANGE_TIMES:
             candidate = datetime.combine(day, clock, tzinfo=tz)
@@ -663,7 +714,7 @@ def tariff_window_end(moment: datetime, tz: tzinfo) -> datetime:
                 continue
             if tariff_window(candidate, tz) != current:
                 return candidate
-    raise RuntimeError("kein Fensterwechsel innerhalb von 4 Tagen gefunden")  # pragma: no cover
+    raise RuntimeError("kein Fensterwechsel gefunden")  # pragma: no cover
 
 
 def energy_price(window: str, standard: float, snap: float, winap: float) -> float | None:

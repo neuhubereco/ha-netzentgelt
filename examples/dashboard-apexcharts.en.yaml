@@ -238,9 +238,9 @@ views:
         cards:
           # --- (ii) When do your peaks occur? Monthly profile over the day ---
           # Columns: highest quarter-hour per time of day this month, line: average.
-          # Bands: tariff windows per the draft regulation — SNAP 10:00–16:00 only applies
-          # 1 Apr–30 Sep, WiNAP 22:00–04:00 only 1 Oct–31 Mar. For simplicity both are
-          # always drawn (fixed times of the current day).
+          # Bands: tariff windows per SNE-G-V (§ 7) — SNAP 10:00–16:00 only applies
+          # 1 Apr–30 Sep, WiNAP 23:00–05:00 only 1 Oct–31 Mar and not before 1 Oct 2027.
+          # For simplicity both are always drawn (fixed times of the current day).
           - type: custom:apexcharts-card
             graph_span: 24h
             span:
@@ -267,13 +267,13 @@ views:
                       text: SNAP (Apr–Sep)
                       borderColor: "#fbc02d"
                   - x: "EVAL:new Date().setHours(0, 0, 0, 0)"
-                    x2: "EVAL:new Date().setHours(4, 0, 0, 0)"
+                    x2: "EVAL:new Date().setHours(5, 0, 0, 0)"
                     fillColor: "#5c6bc0"
                     opacity: 0.15
                     label:
                       text: WiNAP (Oct–Mar)
                       borderColor: "#5c6bc0"
-                  - x: "EVAL:new Date().setHours(22, 0, 0, 0)"
+                  - x: "EVAL:new Date().setHours(23, 0, 0, 0)"
                     x2: "EVAL:new Date().setHours(24, 0, 0, 0)"
                     fillColor: "#5c6bc0"
                     opacity: 0.15
@@ -334,7 +334,7 @@ views:
         cards:
           # --- (iii) Monthly peaks of the last 36 months + capacity charge ---
           # Columns green up to 10 kW (tier 1), red above (tier 2; 10 kW is the tier limit
-          # for grid level 7 set in the draft). Line: estimated capacity charge per month,
+          # for grid level 7 set in § 6 (2) SNE-G-V). Line: estimated capacity charge per month,
           # calculated with the CURRENT price settings.
           # Imported months (portal export) appear the same way.
           # Little data? Shorten graph_span, e.g. to 365d.

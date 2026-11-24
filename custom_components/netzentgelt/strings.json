@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Grid capacity charge Austria",
-        "description": "Select the grid import energy meter (kWh, total/total_increasing). A live grid import power sensor (W/kW) is optional and improves the forecast. Draft regulation (SNE-G-V), prices are indicative only — the network operator's meter is authoritative.",
+        "description": "Select the grid import energy meter (kWh, total/total_increasing). A live grid import power sensor (W/kW) is optional and improves the forecast. Based on SNE-G-V (Federal Law Gazette II No. 299/2026). Prices are indicative only — the network operator's meter is authoritative.",
         "data": {
           "name": "Name",
           "energy_entity": "Grid import energy",
@@ -29,7 +29,7 @@
     "step": {
       "init": {
         "title": "Thresholds and prices",
-        "description": "Default prices are indicative values (not official); the tariff regulation is still pending. Energy prices of 0 mean 'not set'. Target, tier limit, prices and hysteresis can also be changed directly via the settings entities; changing the plausibility limit reloads the integration.",
+        "description": "Default prices are indicative values from the consultation draft of the tariff regulation (SNE-T-V 2027) and differ per grid area — see the table in the README. Until the billing date, grid level 7 is covered by a transitional rule (flat fee instead of monthly peak). Energy prices of 0 mean 'not set'. Target, tier limit, prices and hysteresis can also be changed directly via the settings entities; changing the plausibility limit reloads the integration.",
         "data": {
           "target_kw": "Target power",
           "tier_limit_kw": "Tier limit",
@@ -41,21 +41,24 @@
           "price_snap": "Energy price SNAP (summer midday)",
           "price_winap": "Energy price WiNAP (winter night)",
           "plausibility_kw": "Plausibility limit",
-          "hysteresis_kw": "Hysteresis"
+          "hysteresis_kw": "Hysteresis",
+          "billing_start": "Monthly peak is billed from"
         },
         "data_description": {
           "target_kw": "Peak-shaving target for the 15-minute average.",
           "tier_limit_kw": "Up to and including this value tier 1 applies, above it tier 2 (grid level 7: 10 kW).",
-          "agreed_kw": "Contractually agreed grid capacity; existing connections count as 10 kW.",
-          "minimum_kw": "At least this much is billed; also at least 20 % of the agreed capacity.",
+          "agreed_kw": "Contractually agreed grid capacity. Not part of the monthly capacity charge; for existing connections the highest of 10 kW, this value and the mean of the two highest monthly peaks of 2026 applies (§ 34 SNE-G-V).",
+          "minimum_kw": "At least this much is billed (grid level 7: 2 kW).",
           "plausibility_kw": "15-minute averages above this value are treated as measurement errors.",
-          "hysteresis_kw": "'Peak imminent' switches off only when the forecast falls this far below the target."
+          "hysteresis_kw": "'Peak imminent' switches off only when the forecast falls this far below the target.",
+          "billing_start": "Date from which the capacity charge is billed by monthly peak. Default 1 Dec 2027 (end of the transitional rule, § 6 (3a) SNE-G-V); the date may differ per grid area. Before that, costs are a preview."
         }
       }
     },
     "error": {
       "hysteresis_too_large": "Hysteresis must be smaller than the target power.",
-      "target_above_plausibility": "Target power must not exceed the plausibility limit."
+      "target_above_plausibility": "Target power must not exceed the plausibility limit.",
+      "invalid_date": "Please enter a valid date."
     }
   },
   "entity": {
