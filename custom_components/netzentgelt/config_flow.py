@@ -20,6 +20,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
+    DateSelector,
     EntitySelector,
     EntitySelectorConfig,
     NumberSelector,
@@ -29,8 +30,10 @@ from homeassistant.helpers.selector import (
 )
 import voluptuous as vol
 
+from . import calc
 from .const import (
     CONF_AGREED_KW,
+    CONF_BILLING_START,
     CONF_ENERGY_ENTITY,
     CONF_HYSTERESIS_KW,
     CONF_MINIMUM_KW,
@@ -174,18 +177,22 @@ OPTION_FIELDS: dict[str, NumberSelector] = {
 
 
 class NetzentgeltOptionsFlow(OptionsFlow):
-    """Schwellwerte und Preise; Änderungen laden den Eintrag neu."""
+    """Schwellwerte, Preise und Stichtag der Leistungsverrechnung."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Optionen bearbeiten."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            values = {key: float(user_input[key]) for key in OPTION_FIELDS}
-            if values[CONF_HYSTERESIS_KW] >= values[CONF_TARGET_KW]:
+            values: dict[str, Any] = {key: float(user_input[key]) for key in OPTION_FIELDS}
+            billing_start = calc.parse_date(user_input.get(CONF_BILLING_START))
+            if billing_start is None:
+                errors[CONF_BILLING_START] = "invalid_date"
+            elif values[CONF_HYSTERESIS_KW] >= values[CONF_TARGET_KW]:
                 errors[CONF_HYSTERESIS_KW] = "hysteresis_too_large"
             elif values[CONF_TARGET_KW] > values[CONF_PLAUSIBILITY_KW]:
                 errors[CONF_TARGET_KW] = "target_above_plausibility"
             else:
+                values[CONF_BILLING_START] = billing_start.isoformat()
                 return self.async_create_entry(data=values)
 
         current = {**DEFAULT_OPTIONS, **self.config_entry.options}
@@ -193,8 +200,11 @@ class NetzentgeltOptionsFlow(OptionsFlow):
             current.update(user_input)
         schema = vol.Schema(
             {
-                vol.Required(key, default=current[key]): selector
-                for key, selector in OPTION_FIELDS.items()
+                **{
+                    vol.Required(key, default=current[key]): selector
+                    for key, selector in OPTION_FIELDS.items()
+                },
+                vol.Required(CONF_BILLING_START, default=current[CONF_BILLING_START]): DateSelector(),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema, errors=errors)

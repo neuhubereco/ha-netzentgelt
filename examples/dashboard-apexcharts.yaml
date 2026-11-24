@@ -235,9 +235,10 @@ views:
         cards:
           # --- (ii) Wann entstehen deine Spitzen? Monatsprofil über den Tag ---
           # Säulen: höchste Viertelstunde je Uhrzeit im laufenden Monat, Linie: Mittel.
-          # Bänder: Tarifzeitfenster laut Verordnungsentwurf — SNAP 10–16 Uhr gilt nur
-          # 1.4.–30.9., WiNAP 22–04 Uhr nur 1.10.–31.3. Der Einfachheit halber sind
-          # beide immer eingezeichnet (feste Uhrzeiten des heutigen Tages).
+          # Bänder: Tarifzeitfenster laut SNE-G-V (§ 7) — SNAP 10–16 Uhr gilt nur
+          # 1.4.–30.9., WiNAP 23–05 Uhr nur 1.10.–31.3. und erstmals ab 1.10.2027.
+          # Der Einfachheit halber sind beide immer eingezeichnet (feste Uhrzeiten
+          # des heutigen Tages).
           - type: custom:apexcharts-card
             graph_span: 24h
             span:
@@ -264,13 +265,13 @@ views:
                       text: SNAP (Apr–Sep)
                       borderColor: "#fbc02d"
                   - x: "EVAL:new Date().setHours(0, 0, 0, 0)"
-                    x2: "EVAL:new Date().setHours(4, 0, 0, 0)"
+                    x2: "EVAL:new Date().setHours(5, 0, 0, 0)"
                     fillColor: "#5c6bc0"
                     opacity: 0.15
                     label:
                       text: WiNAP (Okt–Mär)
                       borderColor: "#5c6bc0"
-                  - x: "EVAL:new Date().setHours(22, 0, 0, 0)"
+                  - x: "EVAL:new Date().setHours(23, 0, 0, 0)"
                     x2: "EVAL:new Date().setHours(24, 0, 0, 0)"
                     fillColor: "#5c6bc0"
                     opacity: 0.15
@@ -330,8 +331,8 @@ views:
         column_span: 3
         cards:
           # --- (iii) Monatsspitzen der letzten 36 Monate + Leistungspreis ---
-          # Säulen grün bis 10 kW (Stufe 1), rot darüber (Stufe 2; 10 kW ist die im
-          # Entwurf festgelegte Staffelgrenze für Netzebene 7). Linie: geschätzter
+          # Säulen grün bis 10 kW (Stufe 1), rot darüber (Stufe 2; 10 kW ist die in
+          # § 6 Abs. 2 SNE-G-V festgelegte Staffelgrenze für Netzebene 7). Linie: geschätzter
           # Leistungspreis je Monat, mit den AKTUELLEN Preiseinstellungen gerechnet.
           # Importierte Monate (Portal-Export) erscheinen genauso.
           # Wenige Daten? graph_span z. B. auf 365d verkürzen.

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import Any, Final
 
 DOMAIN: Final = "netzentgelt"
 DEFAULT_NAME: Final = "Netzentgelt"
 MANUFACTURER: Final = "ha-netzentgelt"
-MODEL: Final = "Leistungspreis-Rechner (SNE-G-V Entwurf)"
+MODEL: Final = "Leistungspreis-Rechner (SNE-G-V)"
 
 # --- Config (Quellen) -------------------------------------------------------
 CONF_ENERGY_ENTITY: Final = "energy_entity"
@@ -25,21 +25,27 @@ CONF_PRICE_SNAP: Final = "price_snap"
 CONF_PRICE_WINAP: Final = "price_winap"
 CONF_PLAUSIBILITY_KW: Final = "plausibility_kw"
 CONF_HYSTERESIS_KW: Final = "hysteresis_kw"
+CONF_BILLING_START: Final = "billing_start"
 
-# Richtwerte — NICHT amtlich. Leistungspreise: Endausbau laut stromliste.at;
-# die Tarifverordnung (SNE-T-V) steht noch aus. Arbeitspreise 0 = nicht gesetzt.
-DEFAULT_OPTIONS: Final[dict[str, float]] = {
+# Richtwerte — NICHT amtlich. Leistungspreise: Median der 14 Netzbereiche im
+# Begutachtungsentwurf der SNE-T-V 2027 (253,5 / 380,5 Cent/kW und Monat, mal 12);
+# die Tarifverordnung ist noch nicht kundgemacht, je Netzbereich weichen die Werte
+# stark ab (Tabelle im README). Arbeitspreise 0 = nicht gesetzt.
+# Stichtag: Ende der Übergangsregel laut § 6 Abs. 3a SNE-G-V (30.11.2027).
+DEFAULT_BILLING_START: Final = "2027-12-01"
+DEFAULT_OPTIONS: Final[dict[str, Any]] = {
     CONF_TARGET_KW: 10.0,
     CONF_TIER_LIMIT_KW: 10.0,
     CONF_AGREED_KW: 10.0,
     CONF_MINIMUM_KW: 2.0,
-    CONF_PRICE_TIER1: 33.82,
-    CONF_PRICE_TIER2: 67.64,
+    CONF_PRICE_TIER1: 30.42,
+    CONF_PRICE_TIER2: 45.66,
     CONF_PRICE_STANDARD: 0.0,
     CONF_PRICE_SNAP: 0.0,
     CONF_PRICE_WINAP: 0.0,
     CONF_PLAUSIBILITY_KW: 60.0,
     CONF_HYSTERESIS_KW: 0.2,
+    CONF_BILLING_START: DEFAULT_BILLING_START,
 }
 
 # Bereich der Ziel-Leistung (Options-Flow und Number-Entity). Obergrenze des
@@ -63,6 +69,7 @@ LIVE_OPTION_KEYS: Final = frozenset(
         CONF_PRICE_SNAP,
         CONF_PRICE_WINAP,
         CONF_HYSTERESIS_KW,
+        CONF_BILLING_START,
     }
 )
 
@@ -80,14 +87,12 @@ ENERGY_UNITS: Final = ("Wh", "kWh", "MWh")
 POWER_UNITS: Final = ("W", "kW")
 ENERGY_STATE_CLASSES: Final = ("total", "total_increasing")
 
-MINIMUM_SHARE: Final = 0.2  # 20 % der vereinbarten Leistung (§ 6 Abs. 3 Entwurf)
-
 STORAGE_VERSION: Final = 1
 STORAGE_SAVE_DELAY: Final = 10  # Sekunden
 FORECAST_INTERVAL_SECONDS: Final = 30
 QUARTER_MINUTES: Final = [0, 15, 30, 45]
 
 ATTRIBUTION: Final = (
-    "Näherung nach Entwurf SNE-G-V (E-Control); Preise sind Richtwerte, "
+    "Näherung nach SNE-G-V (BGBl. II Nr. 299/2026); Preise sind Richtwerte, "
     "maßgeblich ist der Zähler des Netzbetreibers."
 )

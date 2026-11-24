@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Netzentgelt AT (Leistungspreis)",
-        "description": "Wähle den Energiezähler für den Netzbezug (kWh, total/total_increasing). Ein Live-Leistungssensor für den Netzbezug (W/kW) ist optional und verbessert die Prognose. Verordnung im Entwurf (SNE-G-V), Preise sind Richtwerte — maßgeblich ist der Zähler des Netzbetreibers.",
+        "description": "Wähle den Energiezähler für den Netzbezug (kWh, total/total_increasing). Ein Live-Leistungssensor für den Netzbezug (W/kW) ist optional und verbessert die Prognose. Grundlage: SNE-G-V (BGBl. II Nr. 299/2026). Preise sind Richtwerte — maßgeblich ist der Zähler des Netzbetreibers.",
         "data": {
           "name": "Name",
           "energy_entity": "Energie Netzbezug",
@@ -29,7 +29,7 @@
     "step": {
       "init": {
         "title": "Schwellwerte und Preise",
-        "description": "Die Standardpreise sind Richtwerte (nicht amtlich); die Tarifverordnung steht noch aus. Arbeitspreise 0 bedeuten „nicht gesetzt“. Ziel, Staffel, Preise und Hysterese lassen sich auch direkt über die Einstellungs-Entities ändern; eine Änderung der Plausibilitätsgrenze lädt die Integration neu.",
+        "description": "Die Standardpreise sind Richtwerte aus dem Begutachtungsentwurf der Tarifverordnung (SNE-T-V 2027) und je Netzbereich verschieden — Tabelle im README. Bis zum Stichtag gilt auf Netzebene 7 die Übergangsregel (Pauschale statt Monatsspitze). Arbeitspreise 0 bedeuten „nicht gesetzt“. Ziel, Staffel, Preise und Hysterese lassen sich auch direkt über die Einstellungs-Entities ändern; eine Änderung der Plausibilitätsgrenze lädt die Integration neu.",
         "data": {
           "target_kw": "Ziel-Leistung",
           "tier_limit_kw": "Staffelgrenze",
@@ -41,21 +41,24 @@
           "price_snap": "Arbeitspreis SNAP (Sommer mittags)",
           "price_winap": "Arbeitspreis WiNAP (Winter nachts)",
           "plausibility_kw": "Plausibilitätsgrenze",
-          "hysteresis_kw": "Hysterese"
+          "hysteresis_kw": "Hysterese",
+          "billing_start": "Monatsspitze wird verrechnet ab"
         },
         "data_description": {
           "target_kw": "Peak-Shaving-Ziel für den 15-Minuten-Mittelwert.",
           "tier_limit_kw": "Bis einschließlich dieses Werts gilt Stufe 1, darüber Stufe 2 (Netzebene 7: 10 kW).",
-          "agreed_kw": "Vertraglich vereinbarte netzwirksame Leistung; Bestandsanschlüsse gelten als 10 kW.",
-          "minimum_kw": "Mindestens so viel wird verrechnet; zusätzlich mindestens 20 % der vereinbarten Leistung.",
+          "agreed_kw": "Vertraglich vereinbarte netzwirksame Leistung. Geht nicht in den monatlichen Leistungspreis ein; für Bestandsanschlüsse gilt der höchste Wert aus 10 kW, diesem Wert und dem Mittel der zwei höchsten Monatsspitzen 2026 (§ 34 SNE-G-V).",
+          "minimum_kw": "Mindestens so viel wird verrechnet (Netzebene 7: 2 kW).",
           "plausibility_kw": "15-Minuten-Mittelwerte darüber gelten als Messfehler.",
-          "hysteresis_kw": "„Spitze droht“ geht erst aus, wenn die Prognose um diesen Wert unter dem Ziel liegt."
+          "hysteresis_kw": "„Spitze droht“ geht erst aus, wenn die Prognose um diesen Wert unter dem Ziel liegt.",
+          "billing_start": "Stichtag, ab dem der Leistungspreis nach der Monatsspitze verrechnet wird. Standard 1.12.2027 (Ende der Übergangsregel, § 6 Abs. 3a SNE-G-V); der Stichtag kann je Netzbereich abweichen. Davor sind die Kosten eine Vorschau."
         }
       }
     },
     "error": {
       "hysteresis_too_large": "Die Hysterese muss kleiner als die Ziel-Leistung sein.",
-      "target_above_plausibility": "Die Ziel-Leistung darf die Plausibilitätsgrenze nicht übersteigen."
+      "target_above_plausibility": "Die Ziel-Leistung darf die Plausibilitätsgrenze nicht übersteigen.",
+      "invalid_date": "Bitte ein gültiges Datum angeben."
     }
   },
   "entity": {

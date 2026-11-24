@@ -226,16 +226,16 @@ async def test_load_profile_sensor_and_history_costs(
     assert attrs["month_max_kw"][42] == pytest.approx(12.0, abs=0.01)
     assert attrs["month_avg_kw"][40] == pytest.approx(2.0, abs=0.01)
 
-    # History: verrechnet 12 kW → (10 × 33,82 + 2 × 67,64) / 12 = 39,46 €
+    # History: verrechnet 12 kW → (10 × 30,42 + 2 × 45,66) / 12 = 32,96 €
     peak = _state(hass, entry, "month_peak")
     month = peak.attributes["history"]["2026-09"]
     assert month["source"] == "measured"
     assert month["billed_kw"] == pytest.approx(12.0, abs=0.01)
-    assert month["capacity_cost_eur"] == pytest.approx(39.46, abs=0.01)
-    # mit geänderter Staffelgrenze sofort neu gerechnet (12 × 33,82 / 12 = 33,82 €)
+    assert month["capacity_cost_eur"] == pytest.approx(32.96, abs=0.01)
+    # mit geänderter Staffelgrenze sofort neu gerechnet (12 × 30,42 / 12 = 30,42 €)
     await _set_number(hass, _entity_id(hass, entry, "number", "tier_limit_kw"), 15.0)
     month = _state(hass, entry, "month_peak").attributes["history"]["2026-09"]
-    assert month["capacity_cost_eur"] == pytest.approx(33.82, abs=0.01)
+    assert month["capacity_cost_eur"] == pytest.approx(30.42, abs=0.01)
 
     # Profile überstehen ein Neuladen (Store)
     assert await hass.config_entries.async_reload(entry.entry_id)

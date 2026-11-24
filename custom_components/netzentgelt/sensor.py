@@ -26,12 +26,17 @@ from .const import (
     CONF_PRICE_TIER2,
     CONF_TARGET_KW,
     CONF_TIER_LIMIT_KW,
-    MINIMUM_SHARE,
 )
 from .coordinator import NetzentgeltConfigEntry, NetzentgeltCoordinator
 from .entity import NetzentgeltEntity
 
 CURRENCY_EURO = "EUR"
+
+NOTE_PREVIEW = (
+    "Vorschau: bis zum Stichtag gilt die Übergangsregel (§ 6 Abs. 3a SNE-G-V), "
+    "die Monatsspitze wird noch nicht verrechnet. Preise laut Einstellung."
+)
+NOTE_ACTIVE = "Schätzung aus eigenen Messwerten mit den eingestellten Preisen."
 
 
 def _r(value: float | None, digits: int) -> float | None:
@@ -115,11 +120,15 @@ def _parse(value: str | None) -> datetime | None:
 def _billed_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
     peak = c.month_peak[0]
     minimum = c.minimum_kw
+    grandfathered, year, months = c.grandfathered
     return {
         "peak_rounded_kw": _r(peak, 2),
         "minimum_kw": _r(minimum, 2),
         "agreed_kw": c.options[CONF_AGREED_KW],
-        "minimum_share": MINIMUM_SHARE,
+        # § 34 Abs. 1 SNE-G-V: max(10 kW, vereinbart, Mittel der zwei höchsten Monatsspitzen)
+        "grandfathered_kw": grandfathered,
+        "grandfathered_year": year,
+        "grandfathered_months": months,
         "basis": "peak" if peak is not None and calc.round_half_up(peak, 2) > minimum else "minimum",
     }
 
@@ -136,7 +145,9 @@ def _cost_attrs(c: NetzentgeltCoordinator) -> dict[str, Any]:
         "price_tier1_eur_per_kw_year": p1,
         "price_tier2_eur_per_kw_year": p2,
         "annual_cost_eur": _r(calc.annual_capacity_cost(billed, limit, p1, p2), 2),
-        "note": "Richtwert — Tarifverordnung (SNE-T-V) steht aus",
+        "billing_start": c.billing_start.isoformat(),
+        "billing_active": c.billing_active,
+        "note": NOTE_ACTIVE if c.billing_active else NOTE_PREVIEW,
     }
 
 

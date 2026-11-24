@@ -2,34 +2,47 @@
 
 # Netzentgelt AT (Leistungspreis) für Home Assistant
 
-Custom Integration für den geplanten **Leistungspreis** im österreichischen Netznutzungsentgelt:
+Custom Integration für den **Leistungspreis** im österreichischen Netznutzungsentgelt ab 2027:
 misst die 15-Minuten-Bezugsleistung wie der Netzbetreiber, führt die Monatsspitze, schätzt den
 Leistungspreis und liefert mit **Prognose** und **Spielraum** die Grundlage für Peak-Shaving
 (z. B. Wallbox drosseln). Ab v0.2: Ziel-Leistung per Schieberegler, Schalter „Peak-Shaving
 aktiv“, Lastprofil (wann entstehen die Spitzen?), 36 Monate Verlauf mit Kosten, Import des
 Portal-Exports deines Netzbetreibers, Blueprints und ein Grafik-Dashboard.
 
-> **⚠️ Verordnung im Entwurf, Preise sind Richtwerte.** Grundlage ist der *Entwurf* der
-> Systemnutzungsentgelte-Grundsatzverordnung (SNE-G-V) der E-Control (Begutachtung
-> 30.06.–24.07.2026). Die endgültige Fassung und die Preise (Tarifverordnung SNE-T-V) stehen aus.
+> **⚠️ Preise sind Richtwerte, 2027 gilt großteils eine Übergangsregel.** Grundlage ist die
+> Systemnutzungsentgelte-Grundsatzverordnung (SNE-G-V), **BGBl. II Nr. 299/2026**, kundgemacht am
+> 12.10.2026, in Kraft ab 1.1.2027. Die Preise legt die Tarifverordnung (SNE-T-V 2027) fest — sie
+> liegt bisher nur als Begutachtungsentwurf vor (Stand 24.11.2026).
 > Alle Werte dieser Integration sind eine **Näherung aus deinen eigenen Sensoren — maßgeblich ist
 > ausschließlich der Zähler des Netzbetreibers.** Keine Rechts- oder Tarifberatung.
 
-## Die Regel (Stand Entwurf)
+## Die Regel (SNE-G-V, BGBl. II Nr. 299/2026)
 
-- Ab **1.1.2027** wird für den Leistungspreis der **höchste Viertelstunden-Mittelwert der
-  Bezugsleistung im Kalendermonat** herangezogen. Viertelstunden sind uhrzeitgebunden
-  (:00, :15, :30, :45); der Mittelwert wird kaufmännisch auf 2 Nachkommastellen gerundet.
-  Jeder Monat beginnt neu.
-- **Netzebene 7 zweistufig:** bis einschließlich 10 kW gilt der günstigere Preis, für den
-  darüber liegenden Anteil der höhere.
-- **Mindestverrechnung:** 20 % der vertraglich vereinbarten Leistung, jedenfalls 2 kW.
-  Bestandsanschlüsse (NE7) gelten als mit 10 kW vereinbart.
-- **Zeitvariable Arbeitspreise:** SNAP (Sommer-Niedrigpreis) 1.4.–30.9. 10:00–16:00,
-  WiNAP (Winter-Niedrigpreis) 1.10.–31.3. 22:00–04:00.
+- Für den Leistungspreis zählt der **höchste Viertelstunden-Mittelwert der Bezugsleistung im
+  Kalendermonat** (§ 3 Abs. 1). Viertelstunden sind uhrzeitgebunden (:00, :15, :30, :45); der
+  Wert wird kaufmännisch auf 2 Nachkommastellen gerundet (§ 28 Abs. 2). Jeder Monat beginnt neu.
+- **Netzebene 7 zweistufig** (§ 6 Abs. 2): ein Monatsleistungspreis für den Anteil bis 10 kW,
+  ein höherer für den Anteil darüber.
+- **Mindestverrechnung auf Netzebene 7: 2 kW** (§ 6 Abs. 3 Z 2). Die 20 % der vereinbarten
+  Leistung aus dem Entwurf gelten nur auf den Netzebenen 1 bis 6.
+- **Übergangsregel 1.1.–30.11.2027** (§ 6 Abs. 3a): Für Anschlüsse mit „nicht gemessener
+  Leistung“ — in der Regel Haushaltsanschlüsse — wird der Leistungspreis als
+  **Pauschale je Zählpunkt** festgelegt, für die übrigen auf Netzebene 7 als ein einheitlicher
+  Preis je kW. **Solange die Pauschale gilt, ändert die Monatsspitze die Netzrechnung nicht.**
+  Staffel und Mindestleistung greifen ab **1.12.2027**; der Stichtag kann je Netzbereich zwischen
+  1.1.2027 und 30.6.2028 verschoben werden (§ 6 Abs. 3b). Was für deinen Anschluss gilt, sagt dein
+  Netzbetreiber.
+- **Zeitvariable Arbeitspreise** (§ 7): SNAP (Sommer-Nieder-Arbeitspreis) 1.4.–30.9. 10:00–16:00;
+  WiNAP (Winter-Nieder-Arbeitspreis) 1.10.–31.3. **23:00–05:00**, erstmals ab **1.10.2027**
+  (§ 32 Abs. 4). Beide nur für Anschlüsse mit Viertelstundenwerten (§ 7 Abs. 5).
+- **Bestandsanschlüsse auf Netzebene 7** (§ 34 Abs. 1): Als Leistung des Anschlusses gilt der
+  höchste Wert aus 10 kW, der Ende 2026 vereinbarten Leistung und dem **Mittel der zwei höchsten
+  Monatsspitzen 2026** (ohne Messwerte aus 2026: jenen aus 2027). Die Integration zeigt diesen
+  Wert aus ihrem Verlauf als Attribut `grandfathered_kw`.
 
-Eine einzige Viertelstunde mit Wallbox + Herd + Wärmepumpe bestimmt also den Preis für den ganzen
-Monat — genau hier setzt Peak-Shaving an.
+Im Endsystem bestimmt also eine einzige Viertelstunde mit Wallbox + Herd + Wärmepumpe den
+Leistungspreis für den ganzen Monat — genau hier setzt Peak-Shaving an. Bis zum Stichtag ist die
+Zeit zum Messen, Einstellen und Ausprobieren.
 
 ## So sieht es aus
 
@@ -128,25 +141,28 @@ bei unserem Test lag ein Fronius Smart Meter rund 0,5 % unter dem Netzzähler (s
 die Netzbetreiber standardmäßig Viertelstundenwerte; die Umstellung der Zähler läuft 2026
 schrittweise. Haushalte können widersprechen — nicht aber, wenn z. B. eine Wärmepumpe,
 Ladestation, ein Speicher oder eine Erzeugungsanlage angeschlossen ist, bei dynamischem
-Stromtarif oder in einer Energiegemeinschaft. Laut Verordnungsentwurf gelten die günstigeren
-Zeitfenster SNAP und WiNAP nur für Anschlüsse mit Viertelstundenwerten; fehlt der gemessene
-Höchstwert, wird er rechnerisch ermittelt. Details:
+Stromtarif oder in einer Energiegemeinschaft. Laut Verordnung gelten die günstigeren
+Zeitfenster SNAP und WiNAP nur für Anschlüsse mit Viertelstundenwerten (§ 7 Abs. 5); fehlt der
+gemessene Höchstwert, wird er rechnerisch ermittelt (§ 3 Abs. 3). Details:
 [Netz NÖ zum ElWG](https://netz-noe.at/energiezukunft/elwg-zu-smart-meter) bzw. dein
 Netzbetreiber.
 
-**Energiegemeinschaften:** Laut Entwurf (§ 9) wird die Leistung nur bei gemeinsamer Nutzung über
-die Hauptleitung bzw. am selben Standort verrechnet. Eine Erneuerbare-Energie-Gemeinschaft über
-das öffentliche Netz senkt den Leistungspreis nicht — sie wirkt nur auf den Arbeitspreis. Die
-Integration rechnet deshalb mit dem physischen Netzbezug.
+**Energiegemeinschaften:** Der Leistungspreis sinkt nur bei gemeinsamer Energienutzung über
+gemeinschaftliche Leitungsanlagen (§ 9 Abs. 2, § 70 Abs. 6 Z 1 und 2 ElWG). Eine
+Energiegemeinschaft über das öffentliche Netz senkt den Leistungspreis nicht — sie wirkt nur auf
+den Arbeitspreis (§ 9 Abs. 3). Die Integration rechnet deshalb mit dem physischen Netzbezug.
 
 ## Installation
 
-### HACS (benutzerdefiniertes Repository)
+### HACS
 
-1. HACS → Integrationen → Menü (⋮) → **Benutzerdefinierte Repositories**.
-2. URL `https://github.com/neuhubereco/ha-netzentgelt`, Kategorie **Integration**, hinzufügen.
-3. „Netzentgelt AT (Leistungspreis)“ installieren, Home Assistant neu starten.
-4. Einstellungen → Geräte & Dienste → **Integration hinzufügen** → „Netzentgelt AT“.
+Die Integration steht seit 19.10.2026 in der HACS-Standardliste.
+
+1. HACS öffnen, nach **„Netzentgelt AT“** suchen, herunterladen.
+2. Home Assistant neu starten.
+3. Einstellungen → Geräte & Dienste → **Integration hinzufügen** → „Netzentgelt AT“.
+
+Wer sie früher als benutzerdefiniertes Repository eingetragen hat, muss nichts ändern.
 
 ### Manuell
 
@@ -168,7 +184,7 @@ Mindestversion: Home Assistant 2026.3.
 Mehrere Einträge (z. B. mehrere Zählpunkte) sind möglich — je Energiesensor einer.
 
 **Optionen** (Zahnrad am Eintrag oder direkt über die Einstellungs-Entities, siehe „Entities“).
-Wert-Änderungen (Ziel, Staffel, vereinbarte Leistung, Mindestleistung, Preise, Hysterese) werden
+Wert-Änderungen (Ziel, Staffel, vereinbarte Leistung, Mindestleistung, Preise, Hysterese, Stichtag) werden
 **sofort übernommen, ohne die Integration neu zu laden** — die laufende Viertelstunde bleibt
 gültig. Nur eine Änderung der Plausibilitätsgrenze lädt neu.
 
@@ -176,13 +192,47 @@ gültig. Nur eine Änderung der Plausibilitätsgrenze lädt neu.
 |---|---|---|
 | Ziel-Leistung | 10 kW | Peak-Shaving-Ziel für den 15-Min-Mittelwert (Prognose, Spielraum, „Spitze droht“) |
 | Staffelgrenze | 10 kW | bis einschließlich: Stufe 1, darüber Stufe 2 |
-| Vereinbarte Leistung | 10 kW | vertraglich vereinbart (Bestandsanschluss NE7: 10 kW) |
-| Mindestleistung | 2 kW | untere Grenze der Verrechnung (zusätzlich ≥ 20 % der vereinbarten Leistung) |
-| Leistungspreis Stufe 1 | 33,82 €/kW/Jahr | **Richtwert** (Endausbau lt. stromliste.at, nicht amtlich) |
-| Leistungspreis Stufe 2 | 67,64 €/kW/Jahr | **Richtwert** (dto.) |
+| Vereinbarte Leistung | 10 kW | vertraglich vereinbarte Leistung. Geht **nicht** in den monatlichen Leistungspreis ein, nur in `grandfathered_kw` (§ 34) |
+| Mindestleistung | 2 kW | untere Grenze der Verrechnung (Netzebene 7: 2 kW) |
+| Leistungspreis Stufe 1 | 30,42 €/kW/Jahr | **Richtwert**: Median der 14 Netzbereiche im Begutachtungsentwurf der SNE-T-V 2027. Wert deines Netzbereichs aus der Tabelle unten eintragen |
+| Leistungspreis Stufe 2 | 45,66 €/kW/Jahr | **Richtwert** (dto.) |
 | Arbeitspreis Standard / SNAP / WiNAP | 0 ct/kWh | 0 = nicht gesetzt; nur zur Anzeige im Tarifzeitfenster |
 | Plausibilitätsgrenze | 60 kW | Viertelstunden darüber gelten als Messfehler |
 | Hysterese | 0,2 kW | „Spitze droht“ geht erst unter *Ziel − Hysterese* wieder aus |
+| Monatsspitze wird verrechnet ab | 1.12.2027 | Stichtag, ab dem der Leistungspreis nach der Monatsspitze verrechnet wird (Ende der Übergangsregel). Nur im Options-Dialog. Davor sind die Kosten eine Vorschau (`billing_active: false`) |
+
+Bestehende Installationen behalten ihre eingestellten Preise; die neuen Standardwerte gelten nur
+für neu angelegte Einträge.
+
+### Preise je Netzbereich (Begutachtungsentwurf SNE-T-V 2027)
+
+**Entwurf, nicht kundgemacht** — abgeschrieben aus dem Begutachtungsentwurf der E-Control
+(§ 5 Abs. 1 und 2, Netzebene 7), ohne Umsatzsteuer. Die Verordnung setzt den Leistungspreis als
+**Monatswert in Cent/kW** fest; die Integration rechnet in €/kW/Jahr (Monatswert × 12 / 100).
+Die endgültigen Werte können abweichen.
+
+| Netzbereich | Stufe 1 bis 10 kW (€/kW/Jahr) | Stufe 2 über 10 kW (€/kW/Jahr) | Arbeitspreis (ct/kWh) | SNAP / WiNAP (ct/kWh) | Übergang, nicht gemessen: Arbeitspreis / SNAP (ct/kWh) | Übergang, gemessen: Leistungspreis (€/kW/Jahr) |
+|---|---|---|---|---|---|---|
+| Burgenland | 40,80 | 61,20 | 6,60 | 5,28 | 8,44 / 6,75 | 76,56 |
+| Kärnten | 42,12 | 63,24 | 7,83 | 6,26 | 10,58 / 8,46 | 119,04 |
+| Klagenfurt | 30,00 | 45,00 | 5,70 | 4,56 | 6,28 / 5,02 | 88,44 |
+| Niederösterreich | 31,32 | 47,04 | 6,11 | 4,89 | 7,53 / 6,02 | 50,40 |
+| Oberösterreich | 28,92 | 43,44 | 5,41 | 4,33 | 6,44 / 5,15 | 53,64 |
+| Linz | 30,84 | 46,32 | 5,28 | 4,22 | 5,98 / 4,78 | 69,00 |
+| Salzburg | 25,20 | 37,80 | 5,19 | 4,15 | 6,42 / 5,14 | 70,08 |
+| Steiermark | 38,52 | 57,84 | 6,59 | 5,27 | 8,31 / 6,65 | 65,64 |
+| Graz | 27,36 | 41,04 | 5,17 | 4,14 | 5,40 / 4,32 | 48,60 |
+| Tirol | 29,40 | 44,16 | 4,98 | 3,98 | 6,68 / 5,34 | 69,84 |
+| Innsbruck | 39,12 | 58,68 | 6,74 | 5,39 | 8,32 / 6,66 | 87,12 |
+| Vorarlberg | 24,00 | 36,00 | 3,77 | 3,02 | 4,20 / 3,36 | 57,72 |
+| Wien | 29,52 | 44,28 | 5,58 | 4,46 | 6,61 / 5,29 | 79,56 |
+| Kleinwalsertal | 69,96 | 105,00 | 11,10 | 8,88 | 16,67 / 13,34 | 171,72 |
+
+- **Übergang, nicht gemessene Leistung:** in allen Netzbereichen eine Pauschale von 82,80 €/Jahr
+  je Zählpunkt statt eines Leistungspreises nach Spitze.
+- **Übergang, gemessene Leistung:** ein einheitlicher Leistungspreis ohne Staffel — dafür Stufe 1
+  und Stufe 2 auf denselben Wert setzen und den Stichtag auf den 1.1.2027.
+- Bis wann der Übergang im jeweiligen Netzbereich gilt, lässt der Entwurf offen („XXX“).
 
 ## Entities
 
@@ -194,10 +244,10 @@ Entity-IDs entstehen aus Gerätename und Entity-Name in der Systemsprache (Beisp
 | 15-Min-Leistung | `sensor.netzentgelt_15_min_leistung` | Mittelwert der zuletzt abgeschlossenen **gültigen** Viertelstunde (kW). Attribute: `quarter_start/_end`, `energy_kwh`, `last_quarter_start`, `last_quarter_valid`, `last_quarter_reason`, `invalid_quarters_month` |
 | Prognose Viertelstunde | `sensor.netzentgelt_prognose_viertelstunde` | (verbraucht seit Grenze + P_jetzt × Restzeit) × 4, alle 30 s |
 | Monatsspitze | `sensor.netzentgelt_monatsspitze` | höchste gültige Viertelstunde im Kalendermonat (eigene Messung und ggf. importierter Lastgang). Attribute: `peak_quarter_start/_end`, `peak_rounded_kw`, `valid_quarters_month`, `invalid_quarters_month`, `source`, `history` (bis 36 Monate: Monat → `peak_kw`, `peak_start`, `valid_quarters`, `invalid_quarters`, `imported_quarters`, `billed_kw`, `capacity_cost_eur` — mit den **aktuellen** Preiseinstellungen gerechnet —, `source` = `measured`/`imported`/`mixed`; wird nicht in den Recorder geschrieben) |
-| Verrechnete Leistung | `sensor.netzentgelt_verrechnete_leistung` | max(Monatsspitze kaufmännisch gerundet, Mindestleistung, 20 % der vereinbarten Leistung) |
-| Leistungspreis Monat (geschätzt) | `sensor.netzentgelt_leistungspreis_monat_geschatzt` | (Stufe 1 bis Staffelgrenze + Stufe 2 darüber) / 12, in € |
+| Verrechnete Leistung | `sensor.netzentgelt_verrechnete_leistung` | max(Monatsspitze kaufmännisch gerundet, Mindestleistung). Attribute: `peak_rounded_kw`, `minimum_kw`, `agreed_kw`, `basis`, dazu `grandfathered_kw` (Leistung des Bestandsanschlusses nach § 34 Abs. 1), `grandfathered_year` (2026 oder 2027) und `grandfathered_months` (1 = erst ein Monat im Verlauf, Näherung) |
+| Leistungspreis Monat (geschätzt) | `sensor.netzentgelt_leistungspreis_monat_geschatzt` | (Stufe 1 bis Staffelgrenze + Stufe 2 darüber) / 12, in €. Attribute u. a. `billing_start` (Stichtag) und `billing_active` — `false` heißt: Übergangsregel, der Wert ist eine Vorschau auf das Endsystem |
 | Spielraum | `sensor.netzentgelt_spielraum` | zusätzliche **konstante** Last (kW), die bis Viertelstundenende noch dazukommen darf, ohne das Ziel zu reißen; **negativ = drosseln** |
-| Tarifzeitfenster | `sensor.netzentgelt_tarifzeitfenster` | `snap` / `winap` / `standard`; Attribute `window_end`, `energy_price_ct_kwh` (falls gesetzt) |
+| Tarifzeitfenster | `sensor.netzentgelt_tarifzeitfenster` | `snap` / `winap` / `standard`; `winap` erstmals ab 1.10.2027. Attribute `window_end`, `energy_price_ct_kwh` (falls gesetzt) |
 | Spitze droht | `binary_sensor.netzentgelt_spitze_droht` | ein, wenn Prognose > Ziel; aus erst unter Ziel − Hysterese |
 | Lastprofil | `sensor.netzentgelt_lastprofil` | Uhrzeit (HH:MM) der Viertelstunde mit der Monatsspitze. Attribute (nicht im Recorder): `today_kw`, `yesterday_kw` (je 96 Werte, Index = Viertelstunde des Tages, `null` = fehlend/ungültig), `month_max_kw`, `month_avg_kw` (höchster bzw. mittlerer Wert je Uhrzeit im laufenden Monat), `labels` (96 × `HH:MM`), `month` |
 | Peak-Shaving aktiv | `switch.netzentgelt_peak_shaving_aktiv` | Freigabe für Automationen und Blueprints (Standard: aus, Zustand übersteht Neustarts). Die Integration selbst schaltet nichts |
@@ -254,11 +304,12 @@ Das Vorbild (ein YAML-Paket) nahm an jeder Viertelstundengrenze einfach den aktu
 6. Monatsspitzen, Verlauf (36 Monate) und Lastprofile werden im HA-Speicher
    (`.storage/netzentgelt.<id>`) abgelegt und überstehen Neustarts.
 
-**WiNAP-Auslegung:** Das Fenster 22:00–04:00 reicht über Mitternacht. Die Integration ordnet eine
-Nacht dem Tag zu, an dem sie **beginnt**: WiNAP-Nächte beginnen an Tagen vom 1.10. bis 31.3.
-um 22:00 und enden um 04:00 des Folgetags. Die Nacht 31.3.→1.4. ist damit bis 04:00 noch WiNAP;
-die Nacht 30.9.→1.10. ist es nicht (erste WiNAP-Nacht: 1.10. 22:00). Sollte die endgültige
-Verordnung anders abgrenzen, wird das angepasst.
+**WiNAP-Auslegung:** Das Fenster 23:00–05:00 reicht über Mitternacht. § 7 Abs. 4 nennt den
+Zeitraum „von 1. Oktober bis 31. März des Folgejahres jeweils von 23 Uhr bis 5 Uhr des
+Folgetags“; die Integration ordnet eine Nacht deshalb dem Tag zu, an dem sie **beginnt**. Die
+Nacht 31.3.→1.4. ist bis 05:00 noch WiNAP, die Nacht 30.9.→1.10. ist es nicht. Die erste
+WiNAP-Nacht überhaupt beginnt am 1.10.2027 um 23:00 (§ 32 Abs. 4) — im Winter 2026/27 meldet
+der Sensor nachts `standard`.
 
 ## Peak-Shaving mit Blueprints
 
@@ -426,24 +477,30 @@ Hauszähler misst etwas anders als der Netzzähler. **Deshalb das Ziel mit Puffe
   Assistant den Wert erhält; Verzögerungen im Quellgerät selbst bleiben unsichtbar.
 - Innerhalb einer Poll-Periode wird konstante Leistung angenommen (Interpolation). Springt die
   Last genau an der Grenze, verschiebt sich ein kleiner Anteil zwischen den Viertelstunden.
-- Flexible Entnahme (§ 10 Entwurf) und Leistungssaldierung bei Energiegemeinschaften (§ 9) sind
-  nicht abgebildet.
+- Flexible Entnahme (§ 10) und die Leistungssaldierung bei gemeinschaftlichen Leitungsanlagen
+  (§ 9 Abs. 2) sind nicht abgebildet.
+- Die Übergangspauschale und der einheitliche Übergangspreis werden nicht als eigene Kosten
+  gerechnet; die Integration zeigt bis zum Stichtag eine Vorschau auf das Endsystem.
+- `grandfathered_kw` stammt aus dem eigenen Verlauf (Messung und Import). Maßgeblich sind die
+  Werte des Netzbetreibers; für das ganze Jahr 2026 den Portal-Export importieren.
 - Keine aktive Steuerung: Die Integration misst und rechnet nur. Schalten ist Sache eigener
   Automationen.
 
 ## Quellen
 
-- E-Control: Begutachtungsentwurf der Systemnutzungsentgelte-Grundsatzverordnung (SNE-G-V),
-  Begutachtung 30.06.–24.07.2026 — insbesondere § 3/§ 6 (Leistungspreis, Staffel,
-  Mindestverrechnung), § 7 (SNAP/WiNAP), § 34 (Bestandsanschlüsse). Veröffentlicht auf
-  [e-control.at](https://www.e-control.at) (Begutachtungen/Verordnungsentwürfe).
-- Richtwerte der Leistungspreise (Endausbau): [stromliste.at](https://www.stromliste.at) — nicht
-  amtlich.
+- Systemnutzungsentgelte-Grundsatzverordnung (SNE-G-V),
+  [BGBl. II Nr. 299/2026](https://www.ris.bka.gv.at/eli/bgbl/II/2026/299/20261012), kundgemacht
+  am 12.10.2026 — insbesondere § 3 (Monatsspitze), § 6 (Leistungspreis, Staffel,
+  Mindestleistung, Übergangsregel), § 7 (SNAP/WiNAP), § 9 (Energiegemeinschaften), § 28
+  (Rundung), § 32 (Inkrafttreten, WiNAP ab 1.10.2027), § 34 (Bestandsanschlüsse).
+- Preise: Begutachtungsentwurf der Systemnutzungsentgelte-Tarife-Verordnung 2027 (SNE-T-V 2027),
+  [E-Control](https://www.e-control.at/documents/d/guest/snt-v-2027-begutachtungsentwurf-pdf),
+  gelesen am 24.11.2026 — **Entwurf**, im Bundesgesetzblatt bis dahin nicht kundgemacht.
 
 ## Entwicklung
 
 ```bash
-uv venv -p 3.13 .venv
+uv venv -p 3.14 .venv
 uv pip install --python .venv/bin/python -r requirements_test.txt
 .venv/bin/python -m pytest -q
 ```
@@ -464,8 +521,28 @@ python3 tools/replay.py zaehler.csv --reference lastgang.csv
 
 ## Changelog
 
-### Unveröffentlicht
+### 0.2.2
 
+Angleichung an die **kundgemachte** Grundsatzverordnung (SNE-G-V, BGBl. II Nr. 299/2026); bisher
+rechnete die Integration nach dem Begutachtungsentwurf.
+
+- **WiNAP 23:00–05:00 statt 22:00–04:00, und erst ab 1.10.2027.** Im Winter 2026/27 meldet
+  `sensor.netzentgelt_tarifzeitfenster` nachts `standard` (bisher fälschlich `winap`).
+  Automationen, die auf `winap` schalten, greifen damit erst ab Oktober 2027.
+- **Mindestverrechnung: 2 kW** auf Netzebene 7. Die 20 % der vereinbarten Leistung entfallen.
+  Wer eine vereinbarte Leistung über 10 kW eingetragen hat, sieht in Monaten mit sehr kleiner
+  Spitze eine niedrigere verrechnete Leistung als bisher. Das Attribut `minimum_share` gibt es
+  nicht mehr.
+- **Übergangsregel:** neue Option „Monatsspitze wird verrechnet ab“ (Standard 1.12.2027) und
+  Attribute `billing_start` / `billing_active` am Leistungspreis-Sensor. Bis zum Stichtag ist der
+  Leistungspreis eine Vorschau auf das Endsystem.
+- **Bestandsanschluss (§ 34):** Attribute `grandfathered_kw`, `grandfathered_year`,
+  `grandfathered_months` an der verrechneten Leistung — höchster Wert aus 10 kW, vereinbarter
+  Leistung und dem Mittel der zwei höchsten Monatsspitzen 2026.
+- **Standardpreise 30,42 / 45,66 €/kW/Jahr** (Median des Begutachtungsentwurfs der SNE-T-V 2027)
+  statt 33,82 / 67,64. Gilt nur für neue Einträge; im README steht die Tabelle je Netzbereich.
+- **Beispiel-Dashboards:** WiNAP-Band auf 23–05 Uhr.
+- **Installation:** HACS-Standardliste statt benutzerdefiniertem Repository.
 - **Grafik-Dashboard für englische Installationen:** `examples/dashboard-apexcharts.en.yaml` mit den
   Entity-IDs, die HA bei Systemsprache Englisch anlegt, und englischen Beschriftungen. Die IDs
   stammen aus einem Community-Beitrag ([@babajun12](https://github.com/babajun12), Issue #3); ein
@@ -566,11 +643,22 @@ Für Englisch gibt es seit einem Community-Beitrag [`examples/dashboard-apexchar
 ## English summary
 
 **Grid capacity charge Austria** — a Home Assistant custom integration for the capacity-based grid
-fee planned in Austria from 2027 (draft regulation SNE-G-V by E-Control): the highest
-clock-aligned 15-minute average grid import power per calendar month is billed (rounded half-up to
-0.01 kW), grid level 7 has two tiers (≤ 10 kW / above), minimum billing is max(20 % of the agreed
-capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00, WiNAP 1 Oct–31 Mar
-22:00–04:00 (a night belongs to the day it starts on).
+fee in Austria from 2027 (regulation SNE-G-V, Federal Law Gazette II No. 299/2026, published
+12 Oct 2026): the highest clock-aligned 15-minute average grid import power per calendar month is
+billed (rounded half-up to 0.01 kW), grid level 7 has two tiers (≤ 10 kW / above), minimum billing
+on grid level 7 is 2 kW. Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00, WiNAP
+1 Oct–31 Mar 23:00–05:00 (a night belongs to the day it starts on), first applied from 1 Oct 2027.
+
+- **Transitional rule 1 Jan–30 Nov 2027:** ordinary household connections (“nicht gemessene
+  Leistung”) pay a flat fee per metering point instead of a peak-based charge; tiers and the
+  minimum apply from 1 Dec 2027, and the date may be shifted per grid area (1 Jan 2027–30 Jun
+  2028). Until the date set in the option “Monthly peak is billed from”, the capacity charge shown
+  is a preview (`billing_active: false`).
+- **Prices:** the tariff regulation (SNE-T-V 2027) exists only as a consultation draft (as of
+  24 Nov 2026). Defaults are the median of the 14 grid areas in that draft; the German section has
+  the table per grid area.
+- **Existing connections (§ 34):** the attribute `grandfathered_kw` shows the highest of 10 kW, the
+  agreed capacity and the mean of the two highest monthly peaks of 2026.
 
 - **Entity IDs follow your system language.** The example dashboards in `examples/` use the IDs of a German installation — **for an English installation use [`examples/dashboard-apexcharts.en.yaml`](examples/dashboard-apexcharts.en.yaml)** (English entity IDs contributed by [@babajun12](https://github.com/babajun12), issue #3). On an English installation (device name “Netzentgelt”) the IDs are: `sensor.netzentgelt_15_minute_power`, `sensor.netzentgelt_15_minute_forecast`, `sensor.netzentgelt_monthly_peak`, `sensor.netzentgelt_billed_power`, `sensor.netzentgelt_capacity_charge_month_estimate`, `sensor.netzentgelt_headroom`, `sensor.netzentgelt_tariff_window`, `sensor.netzentgelt_load_profile`, `binary_sensor.netzentgelt_peak_imminent`, `number.netzentgelt_target_power`, `number.netzentgelt_tier_limit`, `number.netzentgelt_agreed_capacity`, `number.netzentgelt_minimum_billed_power`, `number.netzentgelt_capacity_price_tier_1`, `number.netzentgelt_capacity_price_tier_2`, `number.netzentgelt_hysteresis`, `switch.netzentgelt_peak_shaving_active`. For the core-cards example `examples/dashboard.yaml`, replace them accordingly.
 - **Contributing:** only collaborators can upload to the repository directly (that is how GitHub works). Fork the repo and open a pull request, or open an issue and drag the file into the comment box — GitHub accepts `.yaml` attachments there.
@@ -584,8 +672,8 @@ capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00,
   for validation). The integration measures and warns; throttling is up to your own automation
   (or e.g. an evcc `circuit` with `maxPower`) — four blueprints are included (wallbox, load shedding,
   home-battery reserve, notification).
-- **Install:** HACS → custom repository `https://github.com/neuhubereco/ha-netzentgelt`
-  (category *Integration*), restart, add “Netzentgelt AT”.
+- **Install:** HACS → search for “Netzentgelt AT” (in the HACS default list since 19 Oct 2026),
+  download, restart, add “Netzentgelt AT”.
 - **Configure:** grid import energy sensor (Wh/kWh/MWh, `total`/`total_increasing`), optional grid
   import power sensor (W/kW). Thresholds and prices in the options **or directly via the settings
   entities** (number platform, same values); value changes apply live without reloading the
@@ -625,6 +713,6 @@ capacity, 2 kW). Time-variable energy prices: SNAP 1 Apr–30 Sep 10:00–16:00,
   is marked invalid, never enters the monthly peak, and the 15-minute sensor keeps its last valid
   value with `last_quarter_valid: false`.
 
-> **Draft regulation, indicative prices. The network operator's meter is authoritative.**
+> **Indicative prices (tariff regulation still a draft). The network operator's meter is authoritative.**
 
 License: MIT © 2026 Florian Neuhuber.

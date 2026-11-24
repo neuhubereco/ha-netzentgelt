@@ -27,6 +27,7 @@ from homeassistant.util import dt as dt_util
 from . import calc
 from .const import (
     CONF_AGREED_KW,
+    CONF_BILLING_START,
     CONF_ENERGY_ENTITY,
     CONF_HYSTERESIS_KW,
     CONF_MINIMUM_KW,
@@ -39,6 +40,7 @@ from .const import (
     CONF_PRICE_WINAP,
     CONF_TARGET_KW,
     CONF_TIER_LIMIT_KW,
+    DEFAULT_BILLING_START,
     DEFAULT_OPTIONS,
     DOMAIN,
     FORECAST_INTERVAL_SECONDS,
@@ -81,7 +83,7 @@ class NetzentgeltCoordinator:
         self.entry = entry
         self.energy_entity: str = entry.data[CONF_ENERGY_ENTITY]
         self.power_entity: str | None = entry.data.get(CONF_POWER_ENTITY) or None
-        self.options: dict[str, float] = {**DEFAULT_OPTIONS, **entry.options}
+        self.options: dict[str, Any] = {**DEFAULT_OPTIONS, **entry.options}
         self._structure = _structural_snapshot(entry)
         self.tz = dt_util.get_default_time_zone()
 
@@ -313,10 +315,28 @@ class NetzentgeltCoordinator:
 
     @property
     def minimum_kw(self) -> float:
-        """Mindestverrechnung."""
-        return calc.minimum_billed_kw(
-            float(self.options[CONF_AGREED_KW]), float(self.options[CONF_MINIMUM_KW])
+        """Mindestbemessungsgrundlage (Netzebene 7: 2 kW)."""
+        return float(self.options[CONF_MINIMUM_KW])
+
+    @property
+    def billing_start(self) -> date:
+        """Stichtag, ab dem der Leistungspreis nach der Monatsspitze verrechnet wird."""
+        return (
+            calc.parse_date(self.options.get(CONF_BILLING_START))
+            or calc.parse_date(DEFAULT_BILLING_START)
+            or date.max
         )
+
+    @property
+    def billing_active(self) -> bool:
+        """Stichtag erreicht? Davor sind die Kosten eine Vorschau (Übergangsregel)."""
+        return calc.billing_started(self.today(), self.billing_start)
+
+    @property
+    def grandfathered(self) -> tuple[float, str | None, int]:
+        """Maßgebliche Leistung des Bestandsanschlusses (§ 34 Abs. 1 SNE-G-V)."""
+        peaks = {month: values.get("peak_kw") for month, values in self.tracker.history().items()}
+        return calc.grandfathered_kw(float(self.options[CONF_AGREED_KW]), peaks)
 
     @property
     def month_peak(self) -> tuple[float | None, str | None]:
@@ -325,11 +345,7 @@ class NetzentgeltCoordinator:
 
     def billed_for(self, peak_kw: float | None) -> float:
         """Verrechnete Leistung für eine Spitze (mit den aktuellen Einstellungen)."""
-        return calc.billed_kw(
-            peak_kw,
-            float(self.options[CONF_AGREED_KW]),
-            float(self.options[CONF_MINIMUM_KW]),
-        )
+        return calc.billed_kw(peak_kw, float(self.options[CONF_MINIMUM_KW]))
 
     def cost_for(self, billed: float) -> float:
         """Monatlicher Leistungspreis (€) für eine verrechnete Leistung."""
